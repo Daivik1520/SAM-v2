@@ -6,6 +6,7 @@ import logging
 import sys
 import threading
 from pathlib import Path
+from typing import Dict
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
@@ -83,10 +84,6 @@ class EnhancedSAMAssistant(BaseAssistant):
             
             # Start feature controllers
             await self.start_features()
-            
-            # Initialize UI in main thread
-            self.initialize_ui()
-            
             self.logger.info("Enhanced SAM Assistant started successfully")
             
         except Exception as e:
@@ -198,43 +195,38 @@ class EnhancedSAMAssistant(BaseAssistant):
 
 async def main():
     """Main application entry point"""
-    try:
-        # Create and start the enhanced assistant
-        assistant = EnhancedSAMAssistant()
-        
-        # Start assistant in background
-        await assistant.start()
-        
-        # Run UI in main thread
-        def run_ui():
-            assistant.run_ui()
-        
-        # Start UI in separate thread to avoid blocking
-        ui_thread = threading.Thread(target=run_ui, daemon=False)
-        ui_thread.start()
-        
-        # Keep the main thread alive
-        ui_thread.join()
-        
-    except KeyboardInterrupt:
-        print("\nShutting down SAM Assistant...")
-    except Exception as e:
-        logging.error(f"Fatal error: {e}")
-        sys.exit(1)
-    finally:
-        if 'assistant' in locals():
-            await assistant.stop()
+    pass
 
 
 if __name__ == "__main__":
     try:
-        # Set up event loop for Windows compatibility
-        if sys.platform.startswith('win'):
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-        
-        # Run the main application
-        asyncio.run(main())
-        
+        # Create and start the enhanced assistant in a background asyncio loop
+        assistant = EnhancedSAMAssistant()
+
+        def start_assistant_background():
+            try:
+                # Create a dedicated event loop for the assistant
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                async def runner():
+                    await assistant.start()
+
+                # Start the assistant
+                loop.create_task(runner())
+                loop.run_forever()
+            except Exception as e:
+                logging.error(f"Assistant background loop error: {e}")
+
+        bg_thread = threading.Thread(target=start_assistant_background, daemon=True)
+        bg_thread.start()
+
+        # Initialize and run UI on the main thread (required for tkinter)
+        assistant.initialize_ui()
+        assistant.run_ui()
+
+    except KeyboardInterrupt:
+        print("\nShutting down SAM Assistant...")
     except Exception as e:
         logging.error(f"Failed to start application: {e}")
         sys.exit(1)

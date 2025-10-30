@@ -1,5 +1,7 @@
 import tkinter as tk
 import requests
+import logging
+from logging.handlers import RotatingFileHandler
 from tkinter import simpledialog, messagebox, scrolledtext, filedialog
 from PIL import Image, ImageTk, ImageDraw
 import threading
@@ -917,6 +919,8 @@ class EnhancedJarvisGUI:
         """
         Initialize the ultra-efficient GUI with Copilot-style theming and features.
         """
+        # Setup logging early so we can capture init issues
+        self._setup_logging()
         # Initialize theme (default to Copilot dark)
         self.theme = "copilot_dark"
         self.sidebar_width = 280
@@ -979,6 +983,31 @@ class EnhancedJarvisGUI:
         # Show the window
         self.root.mainloop()
 
+    def _setup_logging(self):
+        """Configure application logging to help diagnose UI/backend issues."""
+        try:
+            # Create logs directory if it doesn't exist
+            os.makedirs("logs", exist_ok=True)
+            self.logger = logging.getLogger("SAM_UI")
+            self.logger.setLevel(logging.INFO)
+            # Avoid duplicate handlers if re-instantiated
+            if not self.logger.handlers:
+                file_handler = RotatingFileHandler(
+                    os.path.join("logs", "sam_ui.log"), maxBytes=1024 * 1024, backupCount=3
+                )
+                file_handler.setFormatter(logging.Formatter(
+                    fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S"
+                ))
+                console_handler = logging.StreamHandler()
+                console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+                self.logger.addHandler(file_handler)
+                self.logger.addHandler(console_handler)
+            self.logger.info("Logging initialized")
+        except Exception as e:
+            # Fallback to print if logging setup fails
+            print(f"Logging setup error: {e}")
+
     def _initialize_ui_components(self):
         """Initialize UI-related components."""
         # Initialize conversation history
@@ -1002,8 +1031,12 @@ class EnhancedJarvisGUI:
             self.tts_engine.setProperty('volume', 0.8)
             self.tts_rate = 150
             self.tts_volume = 0.8
+            if hasattr(self, 'logger'):
+                self.logger.info("TTS engine initialized")
         except Exception as e:
             print(f"TTS initialization error: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.error(f"TTS initialization error: {e}")
             self.tts_engine = None
             self.tts_voice_id = None
             self.tts_rate = 150
@@ -1011,7 +1044,18 @@ class EnhancedJarvisGUI:
         
         # Initialize speech recognition
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
+        try:
+            self.microphone = sr.Microphone()
+            self.mic_available = True
+            if hasattr(self, 'logger'):
+                self.logger.info("Microphone available and initialized")
+        except Exception as e:
+            # Microphone not available or PyAudio missing
+            self.microphone = None
+            self.mic_available = False
+            print(f"Microphone initialization error: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.warning(f"Microphone initialization error: {e}")
         
         # Audio state
         self.speaking = False
@@ -2098,11 +2142,12 @@ class EnhancedJarvisGUI:
             self.main_frame, 
             fg_color=colors["bg"]
         )
-        input_container.pack(fill="x", padx=20, pady=(15, 20))
+        # Reduce overall vertical footprint of input area
+        input_container.pack(fill="x", padx=20, pady=(8, 10))
         
         # AI status indicator
         status_frame = ctk.CTkFrame(input_container, fg_color="transparent")
-        status_frame.pack(fill="x", pady=(0, 10))
+        status_frame.pack(fill="x", pady=(0, 6))
         
         # AI brain icon with status
         ai_status = ctk.CTkFrame(status_frame, fg_color="transparent")
@@ -2129,35 +2174,39 @@ class EnhancedJarvisGUI:
             input_container,
             theme=self.theme
         )
-        self.voice_visualizer.pack(fill="x", pady=(0, 15))
+        self.voice_visualizer.pack(fill="x", pady=(0, 10))
         self.voice_visualizer.pack_forget()  # Hide initially
         
         # Text input frame
         input_frame = ctk.CTkFrame(
             input_container, 
-            fg_color=colors["card"], 
-            corner_radius=20,
-            border_width=2,
+            fg_color="transparent", 
+            corner_radius=0,
+            border_width=0,
             border_color=colors["border_glow"]
         )
-        input_frame.pack(fill="x", pady=(0, 15))
+        # Slightly tighter spacing below the input frame
+        input_frame.pack(fill="x", pady=(0, 8))
         
         # Text input and scrollbar container
         text_container = ctk.CTkFrame(input_frame, fg_color="transparent")
-        text_container.pack(fill="x", padx=20, pady=20)
+        # Compact padding around the text input; let container size to content
+        text_container.pack(fill="x", padx=8, pady=4)
         
         # Text input with proper height
+        # Make the text input shorter to avoid an oversized appearance
         self.input_entry = ctk.CTkTextbox(
             text_container,
-            font=("Segoe UI", 14), 
+            font=("Segoe UI", 13), 
             fg_color=colors["entrybg"],
             text_color=colors["inputfg"], 
             border_width=0,
-            corner_radius=16,
-            height=45,  # Much smaller height
+            corner_radius=12,
+            height=22,  # Further reduced height for compact input
             wrap="word"
         )
-        self.input_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        # Do not expand vertically; keep compact height
+        self.input_entry.pack(side="left", fill="x", padx=(0, 10))
         
         # Scrollbar for text input
         text_scrollbar = ctk.CTkScrollbar(
@@ -2167,7 +2216,8 @@ class EnhancedJarvisGUI:
             button_color=colors["accent"],
             button_hover_color=colors["accent_hover"]
         )
-        text_scrollbar.pack(side="right", fill="y")
+        # Hide scrollbar for a cleaner look; it can be shown later if needed
+        # text_scrollbar.pack(side="right", fill="y")
         
         # Configure text widget to use scrollbar
         self.input_entry.configure(yscrollcommand=text_scrollbar.set)
@@ -2186,7 +2236,7 @@ class EnhancedJarvisGUI:
             input_container, 
             fg_color=colors["bg"]
         )
-        buttons_frame.pack(fill="x", pady=(0, 10))
+        buttons_frame.pack(fill="x", pady=(0, 6))
         
         # Quick suggestions on the left
         suggestions_frame = ctk.CTkFrame(buttons_frame, fg_color="transparent")
@@ -2201,15 +2251,15 @@ class EnhancedJarvisGUI:
                 fg_color=colors["glass"],
                 text_color=colors["fg"],
                 hover_color=colors["hover"],
-                corner_radius=20,
-                height=30,
+                corner_radius=16,
+                height=26,
                 command=lambda s=suggestion: self._quick_suggestion(s)
             )
             chip.pack(side="left", padx=(0, 8))
         
         # Control buttons on the right - SIMPLIFIED
         controls_frame = ctk.CTkFrame(buttons_frame, fg_color="transparent")
-        controls_frame.pack(side="right", pady=5)
+        controls_frame.pack(side="right", pady=4)
         
         # Voice button
         self.voice_btn = ctk.CTkButton(
@@ -2219,9 +2269,9 @@ class EnhancedJarvisGUI:
             command=self.toggle_voice_input, 
             fg_color=colors["success"],
             hover_color=colors["success_hover"],
-            height=35,
-            corner_radius=10,
-            width=80
+            height=30,
+            corner_radius=8,
+            width=72
         )
         self.voice_btn.pack(side="left", padx=(0, 5))
         
@@ -2233,9 +2283,9 @@ class EnhancedJarvisGUI:
             command=self.on_user_input, 
             fg_color=colors["accent"],
             hover_color=colors["accent_hover"],
-            height=35,
-            corner_radius=10,
-            width=80
+            height=30,
+            corner_radius=8,
+            width=72
         )
         self.send_btn.pack(side="left", padx=(0, 5))
         
@@ -2247,9 +2297,9 @@ class EnhancedJarvisGUI:
             command=self.stop_speech, 
             fg_color=colors["error"],
             hover_color=colors["error_hover"],
-            height=35,
-            corner_radius=10,
-            width=80
+            height=30,
+            corner_radius=8,
+            width=72
         )
         self.stop_btn.pack(side="left", padx=(0, 5))
         
@@ -2591,6 +2641,8 @@ class EnhancedJarvisGUI:
             user_input = self.input_entry.get("1.0", tk.END).strip()
             if user_input == self.placeholder_text or not user_input:
                 return
+            if hasattr(self, 'logger'):
+                self.logger.info(f"User input received: {user_input}")
             
             # Clear input immediately for better UX
             self.input_entry.delete("1.0", tk.END)
@@ -2620,6 +2672,8 @@ class EnhancedJarvisGUI:
                     threading.Thread(target=self.process_command, args=(user_input,), daemon=True).start()
                 except Exception as e:
                     print(f"Error starting command thread: {e}")
+                    if hasattr(self, 'logger'):
+                        self.logger.error(f"Error starting command thread: {e}")
                     error_messages = {
                         "English": "Sorry, I encountered an error processing your request. Please try again.",
                         "Hindi": "क्षमा करें, आपके अनुरोध को संसाधित करने में त्रुटि आई। कृपया पुनः प्रयास करें।",
@@ -2629,6 +2683,8 @@ class EnhancedJarvisGUI:
                     self.add_to_chat("System", error_msg, "error")
         except Exception as e:
             print(f"Error in on_user_input: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.exception(f"Error in on_user_input: {e}")
             self.add_to_chat("System", f"Error processing input: {e}", "error")
     
     def _is_quick_command(self, command):
@@ -2670,7 +2726,10 @@ class EnhancedJarvisGUI:
                 response = self.handle_music_command()
             elif 'notes' in command_lower:
                 response = self.intelligent_open_application("notepad", "Notepad")
-            elif 'calc' in command_lower:
+            elif (
+                (re.search(r"\bcalc(ulator)?\b", command_lower) and any(x in command_lower for x in ['open', 'launch', 'start']))
+                or command_lower.strip() in ['calc', 'calculator']
+            ):
                 response = self.intelligent_open_application("calculator", "Calculator")
             elif 'web' in command_lower:
                 response = self.intelligent_open_application("browser", "Web Browser")
@@ -2981,6 +3040,8 @@ class EnhancedJarvisGUI:
         start_time = time.time()
         try:
             command_lower = command.lower().strip()
+            if hasattr(self, 'logger'):
+                self.logger.info(f"Processing command: {command_lower}")
             
             # ⚡ Ultra-fast quick command detection
             if self._is_quick_command(command_lower):
@@ -2990,6 +3051,8 @@ class EnhancedJarvisGUI:
             
             # 🎯 Intelligent command categorization for faster routing
             command_type = self._categorize_command(command_lower)
+            if hasattr(self, 'logger'):
+                self.logger.info(f"Categorized command as: {command_type}")
             
             # Show minimal typing indicator for AI processing
             self.show_typing_indicator()
@@ -3022,6 +3085,8 @@ class EnhancedJarvisGUI:
                             response = "🤖 I'm not sure how to respond to that. Could you try rephrasing your question or ask me something else?"
                     except Exception as ai_error:
                         print(f"AI processing error: {ai_error}")
+                        if hasattr(self, 'logger'):
+                            self.logger.error(f"AI processing error: {ai_error}")
                         response = self._get_fallback_response(command)
                 self._track_performance(start_time, command_type)
                 self.root.after(0, lambda: self.display_response(response))
@@ -3029,10 +3094,14 @@ class EnhancedJarvisGUI:
             except Exception as e:
                 self.hide_typing_indicator()
                 error_msg = f"❌ Error processing command: {str(e)}"
+                if hasattr(self, 'logger'):
+                    self.logger.exception(error_msg)
                 self.root.after(0, lambda: self.display_response(error_msg, "error"))
             
         except Exception as e:
             print(f"Error in process_command: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.exception(f"Error in process_command: {e}")
             error_msg = "🤖 I'm having some technical difficulties right now. I can still help with system tasks, calculations, and basic information. Try using the quick action buttons or ask about system info!"
             self.root.after(0, lambda: self.display_response(error_msg, "error"))
     
@@ -3094,7 +3163,11 @@ class EnhancedJarvisGUI:
             return "user_defined"
             
         # System commands
-        system_keywords = ['system', 'cpu', 'memory', 'battery', 'screenshot', 'open', 'close', 'kill']
+        system_keywords = [
+            'system', 'cpu', 'memory', 'battery', 'screenshot', 'open', 'close', 'kill',
+            'volume', 'mute', 'unmute', 'brightness', 'display', 'screen', 'extend', 'duplicate',
+            'second screen', 'pc screen', 'shutdown', 'restart', 'sleep', 'hibernate', 'lock', 'power'
+        ]
         if any(keyword in command_lower for keyword in system_keywords):
             return "system"
         
@@ -3124,23 +3197,122 @@ class EnhancedJarvisGUI:
             return "email"
         
         # Default to AI processing
-            return "ai"
+        return "ai"
     
     def _handle_system_command(self, command):
         """Handle system-related commands with instant responses."""
-        if 'cpu' in command.lower():
+        cmd = command.lower().strip()
+
+        # Volume controls
+        import re
+        if re.search(r"\b(mute(\s+volume)?)\b", cmd):
+            result = self._mute_system_volume(True)
+            return f"🔈 Muted system volume. {result}"
+        if re.search(r"\b(unmute(\s+volume)?)\b", cmd):
+            result = self._mute_system_volume(False)
+            return f"🔊 Unmuted system volume. {result}"
+        m = re.search(r"\b(set|change|adjust)\s+volume\s+to\s+(\d{1,3})%?\b", cmd)
+        if m:
+            percent = int(m.group(2))
+            percent = max(0, min(100, percent))
+            ok, msg = self._set_system_volume_percent(percent)
+            if ok:
+                return f"🔊 Volume set to {percent}%"
+            else:
+                return f"ℹ️ {msg}"
+        m = re.search(r"\bvolume\s+(up|down)(?:\s+by\s+(\d{1,3}))?\b", cmd)
+        if m:
+            direction = m.group(1)
+            amount = int(m.group(2)) if m.group(2) else 5
+            ok, msg = self._adjust_system_volume(direction, amount)
+            if ok:
+                return f"🔊 Volume {direction} by {amount}%"
+            else:
+                return f"ℹ️ {msg}"
+
+        # Brightness controls
+        m = re.search(r"\b(set|change|adjust)\s+brightness\s+to\s+(\d{1,3})%?\b", cmd)
+        if m:
+            percent = int(m.group(2))
+            percent = max(0, min(100, percent))
+            ok, msg = self._set_brightness_percent(percent)
+            if ok:
+                return f"💡 Brightness set to {percent}%"
+            else:
+                return f"ℹ️ {msg}"
+        m = re.search(r"\bbrightness\s+(up|down)(?:\s+by\s+(\d{1,3}))?\b", cmd)
+        if m:
+            direction = m.group(1)
+            amount = int(m.group(2)) if m.group(2) else 10
+            ok, msg = self._adjust_brightness(direction, amount)
+            if ok:
+                return f"💡 Brightness {direction} by {amount}%"
+            else:
+                return f"ℹ️ {msg}"
+
+        # Display preferences (projector modes)
+        if any(k in cmd for k in ["extend", "duplicate", "second screen", "pc screen"]):
+            mode = None
+            if "extend" in cmd:
+                mode = "extend"
+            elif "duplicate" in cmd or "clone" in cmd:
+                mode = "duplicate"
+            elif "second screen" in cmd or "external" in cmd:
+                mode = "external"
+            elif "pc screen" in cmd or "internal" in cmd:
+                mode = "internal"
+            if mode:
+                ok, msg = self._switch_display_mode(mode)
+                if ok:
+                    human = {
+                        'extend': 'Extend',
+                        'duplicate': 'Duplicate',
+                        'external': 'Second screen only',
+                        'internal': 'PC screen only'
+                    }[mode]
+                    return f"🖥️ Switched display to: {human}"
+                else:
+                    return f"ℹ️ {msg}"
+
+        # Power management
+        if any(k in cmd for k in ["shutdown", "restart", "sleep", "hibernate", "lock"]):
+            action = None
+            if "shutdown" in cmd:
+                action = "shutdown"
+            elif "restart" in cmd or "reboot" in cmd:
+                action = "restart"
+            elif "sleep" in cmd:
+                action = "sleep"
+            elif "hibernate" in cmd:
+                action = "hibernate"
+            elif "lock" in cmd:
+                action = "lock"
+            ok, msg = self._perform_power_action(action)
+            if ok:
+                icons = {
+                    'shutdown': '⏻',
+                    'restart': '🔁',
+                    'sleep': '🌙',
+                    'hibernate': '❄️',
+                    'lock': '🔒'
+                }
+                return f"{icons.get(action, '⚙️')} Executing {action}..."
+            else:
+                return f"ℹ️ {msg}"
+
+        if 'cpu' in cmd:
             cpu_percent = psutil.cpu_percent(interval=None)
             return f"🖥️ CPU Usage: {cpu_percent:.1f}%"
-        elif 'memory' in command.lower():
+        elif 'memory' in cmd:
             memory = psutil.virtual_memory()
             return f"💾 Memory: {memory.percent:.1f}% used ({memory.used//(1024**3):.1f}GB/{memory.total//(1024**3):.1f}GB)"
-        elif 'battery' in command.lower():
+        elif 'battery' in cmd:
             battery = psutil.sensors_battery()
             if battery:
                 return f"🔋 Battery: {battery.percent:.1f}% ({'Plugged in' if battery.power_plugged else 'On battery'})"
             else:
                 return "🔋 Battery info not available"
-        elif 'performance' in command.lower() or 'stats' in command.lower() or 'efficiency' in command.lower():
+        elif 'performance' in cmd or 'stats' in cmd or 'efficiency' in cmd:
             stats = self.get_performance_stats()
             return f"⚡ Performance Stats:\n" + \
                    f"• Commands: {stats['total_commands']}\n" + \
@@ -3149,6 +3321,145 @@ class EnhancedJarvisGUI:
                    f"• Commands/min: {stats['commands_per_minute']}"
         else:
             return self.get_detailed_system_info()
+
+    # ===== System control helpers =====
+    def _get_volume_controller(self):
+        """Try to obtain a volume controller via pycaw. Returns (endpoint, interface) or (None, None)."""
+        try:
+            from comtypes import CLSCTX_ALL
+            from ctypes import POINTER, cast
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            return devices, volume
+        except Exception:
+            return None, None
+
+    def _set_system_volume_percent(self, percent: int):
+        devices, volume = self._get_volume_controller()
+        if volume is not None:
+            try:
+                # Range is 0.0 to 1.0
+                volume.SetMasterVolumeLevelScalar(percent / 100.0, None)
+                return True, ""
+            except Exception as e:
+                return False, f"Failed to set volume: {e}"
+        return False, "Exact volume setting requires 'pycaw'. Please install it (pip install pycaw) to enable precise control, or use 'volume up/down/mute'."
+
+    def _adjust_system_volume(self, direction: str, amount: int):
+        # Try precise control via pycaw first
+        devices, volume = self._get_volume_controller()
+        if volume is not None:
+            try:
+                current = volume.GetMasterVolumeLevelScalar() * 100.0
+                delta = amount if direction == 'up' else -amount
+                target = max(0, min(100, int(current + delta)))
+                volume.SetMasterVolumeLevelScalar(target / 100.0, None)
+                return True, ""
+            except Exception as e:
+                return False, f"Failed to adjust volume: {e}"
+        # Fallback: use key events (coarse control)
+        try:
+            import ctypes
+            VK_VOLUME_UP = 0xAF
+            VK_VOLUME_DOWN = 0xAE
+            key = VK_VOLUME_UP if direction == 'up' else VK_VOLUME_DOWN
+            steps = max(1, int(amount // 2))  # approx 2% per step
+            for _ in range(steps):
+                ctypes.windll.user32.keybd_event(key, 0, 0, 0)
+            return True, "(coarse control)"
+        except Exception as e:
+            return False, f"Failed to adjust volume via key events: {e}"
+
+    def _mute_system_volume(self, mute: bool):
+        devices, volume = self._get_volume_controller()
+        if volume is not None:
+            try:
+                volume.SetMute(1 if mute else 0, None)
+                return ""
+            except Exception as e:
+                return f"Failed to {'mute' if mute else 'unmute'}: {e}"
+        # Fallback: toggle mute key
+        try:
+            import ctypes
+            VK_VOLUME_MUTE = 0xAD
+            ctypes.windll.user32.keybd_event(VK_VOLUME_MUTE, 0, 0, 0)
+            return "(coarse control)"
+        except Exception as e:
+            return f"Failed to toggle mute via key events: {e}"
+
+    def _set_brightness_percent(self, percent: int):
+        # Use PowerShell WMI to set brightness (works for built-in displays)
+        import subprocess
+        try:
+            cmd = f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, {percent})"
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd], capture_output=True, text=True)
+            if r.returncode == 0:
+                return True, ""
+            else:
+                return False, "Brightness control via WMI not supported on this display."
+        except Exception as e:
+            return False, f"Failed to set brightness: {e}"
+
+    def _get_current_brightness(self):
+        import subprocess
+        try:
+            cmd = "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness | Select-Object -ExpandProperty CurrentBrightness)"
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd], capture_output=True, text=True)
+            if r.returncode == 0:
+                val = r.stdout.strip()
+                return int(val) if val.isdigit() else None
+        except Exception:
+            pass
+        return None
+
+    def _adjust_brightness(self, direction: str, amount: int):
+        current = self._get_current_brightness()
+        if current is None:
+            # Attempt relative change even without current value by best effort
+            baseline = 50
+            target = baseline + (amount if direction == 'up' else -amount)
+        else:
+            target = current + (amount if direction == 'up' else -amount)
+        target = max(0, min(100, target))
+        return self._set_brightness_percent(target)
+
+    def _switch_display_mode(self, mode: str):
+        import subprocess
+        exe = "DisplaySwitch.exe"
+        arg = {
+            'extend': '/extend',
+            'duplicate': '/clone',
+            'external': '/external',
+            'internal': '/internal'
+        }.get(mode)
+        if arg is None:
+            return False, "Unknown display mode"
+        try:
+            subprocess.Popen([exe, arg])
+            return True, ""
+        except Exception as e:
+            return False, f"Failed to switch display: {e}"
+
+    def _perform_power_action(self, action: str):
+        import subprocess
+        try:
+            if action == 'shutdown':
+                subprocess.Popen(['shutdown', '/s', '/t', '0'])
+            elif action == 'restart':
+                subprocess.Popen(['shutdown', '/r', '/t', '0'])
+            elif action == 'sleep':
+                subprocess.Popen(['rundll32.exe', 'powrprof.dll,SetSuspendState', '0,1,0'])
+            elif action == 'hibernate':
+                subprocess.Popen(['shutdown', '/h'])
+            elif action == 'lock':
+                subprocess.Popen(['rundll32.exe', 'user32.dll,LockWorkStation'])
+            else:
+                return False, 'Unknown power action'
+            return True, ""
+        except Exception as e:
+            return False, f"Failed to execute power action: {e}"
     
     def _handle_search_command(self, command):
         """Handle search commands with instant results."""
@@ -3275,6 +3586,8 @@ class EnhancedJarvisGUI:
             
             # Enhance response to be more conversational and human-like
             enhanced_response = self._enhance_response_for_conversation(response)
+            if hasattr(self, 'logger'):
+                self.logger.info(f"Displaying response: {enhanced_response}")
             
             # Add response to chat
             self.add_to_chat("SAM", enhanced_response, msg_type)
@@ -3285,86 +3598,57 @@ class EnhancedJarvisGUI:
                 threading.Thread(target=self.speak_text, args=(enhanced_response,), daemon=True).start()
         except Exception as e:
             print(f"Error in display_response: {e}")
+            if hasattr(self, 'logger'):
+                self.logger.exception(f"Error in display_response: {e}")
     
     def _enhance_response_for_conversation(self, response):
-        """Enhance response to be more conversational and human-like."""
+        """Enhance response to be more conversational without losing content."""
         if not response:
             return response
-        
-        # Add conversational elements based on response type
+        # Normalize for checks
         response_lower = response.lower()
-        
-        # For greetings and acknowledgments
+
+        # Important: never replace the user's informative content.
+        # Only prepend or append lightweight conversational phrases.
+
+        # Greeting augmentation (keep original content intact)
         if any(word in response_lower for word in ['hello', 'hi', 'hey']):
-            greetings = [
-                "Hello there! 👋",
-                "Hi! How can I help you today?",
-                "Hey! Great to see you!",
-                "Hello! What would you like to do?"
-            ]
-            return random.choice(greetings)
-        
-        # For task completions
+            # If the response is a short standalone greeting, add an emoji
+            if len(response.strip()) <= 40:
+                return "👋 " + response
+            # Otherwise, keep content as-is
+            return response
+
+        # Task completion tone
         if any(word in response_lower for word in ['opened', 'launched', 'started', 'completed']):
-            completions = [
-                f"Perfect! {response}",
-                f"Great! {response}",
-                f"Excellent! {response}",
-                f"Done! {response}"
-            ]
-            return random.choice(completions)
-        
-        # For errors or issues
+            return "✅ " + response
+
+        # Error tone
         if any(word in response_lower for word in ['error', 'failed', 'could not', 'unable']):
-            errors = [
-                f"I'm sorry, but {response}",
-                f"Unfortunately, {response}",
-                f"I apologize, but {response}",
-                f"Let me try a different approach. {response}"
-            ]
-            return random.choice(errors)
-        
-        # For information responses
+            return "⚠️ " + response
+
+        # Information tone
         if any(word in response_lower for word in ['temperature', 'weather', 'system', 'cpu', 'memory']):
-            info_responses = [
-                f"Here's what I found: {response}",
-                f"Let me check that for you: {response}",
-                f"Here's the information: {response}",
-                f"According to my data: {response}"
-            ]
-            return random.choice(info_responses)
-        
-        # For calculations
-        if any(word in response_lower for word in ['equals', 'result', 'calculation']):
-            calc_responses = [
-                f"The answer is: {response}",
-                f"Here's the result: {response}",
-                f"Calculating... {response}",
-                f"That equals: {response}"
-            ]
-            return random.choice(calc_responses)
-        
-        # For search results
+            return "ℹ️ " + response
+
+        # Calculation tone
+        if any(word in response_lower for word in ['equals', 'result', 'calculation', '=']):
+            return "🧮 " + response
+
+        # Search tone
         if any(word in response_lower for word in ['search', 'found', 'results']):
-            search_responses = [
-                f"I found this for you: {response}",
-                f"Here are the search results: {response}",
-                f"Let me search that for you: {response}",
-                f"Here's what I discovered: {response}"
-            ]
-            return random.choice(search_responses)
-        
-        # Default enhancement - add a friendly prefix occasionally
-        if random.random() < 0.3:  # 30% chance
+            return "🔎 " + response
+
+        # Occasionally add a friendly prefix but preserve content
+        if random.random() < 0.2:
             prefixes = [
                 "Sure! ",
                 "Absolutely! ",
-                "Of course! ",
                 "Here you go: ",
-                "Let me help you with that: "
+                "Happy to help: "
             ]
             return random.choice(prefixes) + response
-        
+
         return response
     
     def show_typing_indicator(self):

@@ -1,0 +1,15 @@
+{
+  "username": "Developer",
+  "theme": "copilot_dark",
+  "language": "English",
+  "gmail_address": null,
+  "gmail_app_password": null,
+  "hotwords": [
+    "hey sam",
+    "hello sam",
+    "sam"
+  ],
+  "chat_font_size": 13,
+  "tts_voice_id": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices\\Tokens\\TTS_MS_EN-US_DAVID_11.0",
+  "last_updated": "2025-10-30T17:32:16.662221"
+}

@@ -36,6 +36,8 @@ class VoiceController:
         self.wake_word_detected = False
         self.voice_commands: Dict[str, Callable] = {}
         self.conversation_mode = False
+        # Event loop reference (set when listening starts)
+        self.loop = None
         
         # Multi-language support
         self.supported_languages = {
@@ -151,6 +153,12 @@ class VoiceController:
             
         self.is_listening = True
         self.assistant.state.is_listening = True
+        # Capture the running event loop so we can schedule coroutines from threads
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Fallback if called outside an event loop; will be set later when available
+            self.loop = None
         
         # Start background listening thread
         self.listen_thread = threading.Thread(target=self._listen_continuously, daemon=True)
@@ -215,7 +223,21 @@ class VoiceController:
                     return
             
             # Process command
-            await self._process_command(text)
+            # Schedule the coroutine on the main event loop from this background thread
+            try:
+                if self.loop is None:
+                    # Attempt to get a running loop again if not set
+                    try:
+                        self.loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        self.loop = None
+                if self.loop:
+                    asyncio.run_coroutine_threadsafe(self._process_command(text), self.loop)
+                else:
+                    # As a last resort, run the coroutine in a new event loop (blocking)
+                    asyncio.run(self._process_command(text))
+            except Exception as e:
+                self.logger.error(f"Error scheduling command processing: {e}")
             
             # Reset wake word detection after processing
             if not self.conversation_mode:
