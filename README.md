@@ -31,6 +31,11 @@ Overview
 - Integrates an AI chat backend for general questions and image analysis workflows.
 - Simple UI powered by `customtkinter` with speech input/output.
 
+Demo & Screenshots
+- Demo GIF: coming soon (`docs/demo.gif`)
+- Screenshots: coming soon (`docs/screenshots/`)
+- Want to contribute assets? Share your captures in an issue and we’ll add them.
+
 Features
 - Voice & Text Interaction
   - Hotword and push‑to‑talk workflows (configurable)
@@ -114,6 +119,14 @@ Examples
 "how to center a div in CSS?"
 ```
 
+Usage Guide
+- Start the app: `python SAM.py`
+- Speak or type commands in the UI
+- For best results:
+  - Use a quiet environment for voice
+  - Check the output volume slider and system default device
+  - Run PowerShell as Administrator for power/display actions when needed
+
 
 Configuration
 - Environment variables
@@ -122,6 +135,15 @@ Configuration
   - `config/settings.py` contains adjustable parameters such as token limits, temperature, and UI preferences.
 - Audio & TTS
   - Voice and output volume can be adjusted via voice or UI slider.
+
+Advanced Configuration
+- Environment Keys
+  - Persist keys with PowerShell: `setx AI_API_KEY "<your-key>"`
+  - Restart terminal/app after setting to ensure they’re picked up
+- Logs
+  - Runtime logs stored in `logs/` (ignored by git). Check `logs/sam_ui.log` and the console for diagnostics.
+- Custom Commands / Hotwords
+  - If present, `user_commands.json` and `hotwords.json` customize quick actions and wake phrases.
 
 Troubleshooting
 - Missing files warnings
@@ -153,6 +175,25 @@ Security & Privacy
 - Permissions: Certain power/display operations may require elevated privileges.
 - Safety: Consider enabling confirmation prompts for shutdown/restart in production.
 
+Build & Release
+- Create a Windows executable with `pyinstaller`:
+  ```bash
+  pyinstaller --noconsole --onefile SAM.py
+  ```
+- Tips
+  - Include UI assets or external files via `--add-data` if you introduce them later
+  - Test on a clean Windows machine or VM
+  - Sign binaries if distributing broadly
+
+Versioning & Changelog
+- Versioning: semantic (`MAJOR.MINOR.PATCH`)
+- Changelog: track notable changes in Releases or a `CHANGELOG.md` (to be added)
+
+Community & Support
+- Start a discussion: https://github.com/Daivik1520/SAM-v2/discussions
+- File an issue: https://github.com/Daivik1520/SAM-v2/issues
+- Feature requests and bug reports are welcome; include logs and steps to reproduce.
+
 Roadmap
 - Safer power actions (confirmations)
 - Extended display controls (resolution, refresh rate)
@@ -161,17 +202,25 @@ Roadmap
 - Packaged installer via `pyinstaller`
  - Optional local/offline modes for voice and chat
  - Centralized model/provider config and key management
+ - Screenshots, demo GIF, and installer documentation
 
 Contributing
 - Issues and PRs are welcome!
 - Suggested flow:
   - Fork the repo
-  - Create a feature branch
-  - Commit with clear messages
-  - Open a pull request with rationale and screenshots/logs where relevant
+ - Create a feature branch
+ - Commit with clear messages
+ - Open a pull request with rationale and screenshots/logs where relevant
  - Style & Scope
    - Keep changes focused and minimal; match existing code style
    - Add tests or logs where practical to ease review
+  - Code of Conduct
+    - Be respectful and constructive; assume positive intent in reviews and issues
 
 License
 - MIT — see `LICENSE` for full text.
+[Quick Links]
+- Repo: https://github.com/Daivik1520/SAM-v2
+- Issues: https://github.com/Daivik1520/SAM-v2/issues
+- Discussions: https://github.com/Daivik1520/SAM-v2/discussions
+- Releases: https://github.com/Daivik1520/SAM-v2/releases
