@@ -174,4 +174,4 @@ Contributing
    - Add tests or logs where practical to ease review
 
 License
-- MIT — see the license notice in this repository.
+- MIT — see `LICENSE` for full text.
