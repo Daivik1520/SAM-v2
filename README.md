@@ -1,103 +1,115 @@
-🧠 SAM – Your AI Robot Assistant
+SAM v2 — Voice‑Controlled Windows Assistant
 
-SAM (Smart AI Machine) is a futuristic personal assistant inspired by Tony Stark’s Jarvis. It is designed to interact with users through voice and text, execute system and online tasks, and provide a futuristic interface with 3D model support. SAM is built entirely in Python, with plans for deployment on devices like Raspberry Pi or Jetson Nano.
+[![Stars](https://img.shields.io/github/stars/Daivik1520/SAM-v2?style=social)](https://github.com/Daivik1520/SAM-v2/stargazers)
+[![Forks](https://img.shields.io/github/forks/Daivik1520/SAM-v2?style=social)](https://github.com/Daivik1520/SAM-v2/network/members)
+[![Issues](https://img.shields.io/github/issues/Daivik1520/SAM-v2)](https://github.com/Daivik1520/SAM-v2/issues)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](#license)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](requirements.txt)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-lightgrey)](#requirements)
 
-✨ Features
+SAM v2 is a modern, voice‑controlled assistant for Windows. It manages system settings (volume, brightness, display modes, power actions), answers questions via an AI backend, and provides a clean desktop UI with speech I/O.
 
-🎤 Voice & Text Interaction
+Table of Contents
+- Overview
+- Features
+- Requirements
+- Installation
+- Quick Start
+- Voice Commands
+- Configuration
+- Security & Privacy
+- Roadmap
+- Contributing
+- License
 
-Hotword activation (Hey SAM)
+Overview
+- Voice and text assistant designed for everyday desktop use on Windows.
+- Instant system controls via natural language (mute, brightness up, switch display, sleep, lock, etc.).
+- Integrates an AI chat backend for general questions and image analysis workflows.
+- Simple UI powered by `customtkinter` with speech input/output.
 
-Male/Female voice options
+Features
+- Voice & Text Interaction
+  - Hotword and push‑to‑talk workflows (configurable)
+  - TTS engine with adjustable volume
+  - Multilingual support (e.g., English; extensible)
+- System Controls (Windows)
+  - Volume: mute, unmute, set `n%`, up/down by `n`
+  - Brightness: set `n%`, up/down by `n`
+  - Display: extend, duplicate, second screen only, PC screen only
+  - Power: shutdown, restart, sleep, hibernate, lock
+- Productivity & Utilities
+  - Quick commands (calculator, web search, weather/news hooks, open apps)
+  - System stats (CPU, memory, battery)
+- Vision & Smart Home (extensible)
+  - Computer vision hooks and smart‑home brightness logic available for future expansion
 
-Multilingual support (English, Hindi, Telugu)
+Requirements
+- Windows 10 or 11 (administrator privileges recommended for some power actions)
+- Python 3.10+
+- Microphone access (for voice features)
 
-⚙️ Command Execution
-
-Open applications (YouTube, Music, Calculator, etc.)
-
-Perform calculations
-
-Fetch weather, news, and system data
-
-Send emails via Gmail integration
-
-Custom commands support
-
-🖥️ Futuristic Interface
-
-Multiple themes: Dark, Light, Blue
-
-Quick action buttons: Web, Notes, Weather, ASCII Art, Code, 3D Models
-
-Tiles for network & IP address
-
-Central chat area for interaction
-
-🧩 Additional Capabilities
-
-Visual input: Object recognition via camera
-
-Daily planner integration
-
-Load and display 3D models
-
-Future-ready for robotics (SAM Robot Assistant project)
-
-📂 Project Structure
-SAM/
-│── main.py              # Entry point for SAM
-│── intents/             # Intent classification & NLP models
-│── commands/            # Command execution scripts
-│── ui/                  # User interface components
-│── models/              # AI/ML models
-│── assets/              # Icons, themes, and media
-│── config/              # Settings, email config, hotword, etc.
-│── docs/                # Documentation & guides
-
-🛠️ Installation
-
-Clone the repository:
-
-git clone https://github.com/your-username/SAM.git
-cd SAM
-
-
-Install dependencies:
-
+Installation
+```bash
+git clone https://github.com/Daivik1520/SAM-v2.git
+cd SAM-v2
+python -m venv .venv
+. .venv/Scripts/Activate.ps1  # PowerShell on Windows
 pip install -r requirements.txt
+```
 
+Quick Start
+```bash
+python SAM.py
+```
+- At first run you may see warnings about missing `user_commands.json` or `hotwords.json`; the app still works with defaults.
+- Ensure your microphone is enabled and input volume is reasonable.
 
-Run SAM:
+Voice Commands
+- Volume
+  - "mute" / "unmute"
+  - "set volume to 30 percent"
+  - "volume up by 10" / "volume down by 10"
+- Brightness
+  - "set brightness to 60 percent"
+  - "brightness down by 20"
+- Display
+  - "switch display to extend"
+  - "duplicate display" / "second screen only" / "pc screen only"
+- Power
+  - "sleep the PC" / "hibernate" / "lock" / "restart" / "shutdown"
+- System Info
+  - "what's my CPU usage" / "battery level" / "memory usage"
+- General Questions
+  - Ask anything; responses use the configured AI backend.
 
-python main.py
+Configuration
+- Environment variables
+  - Set your AI API key(s) via environment variables (e.g., `setx AI_API_KEY "<your-key>"`), or load via a secure config file.
+- Settings file
+  - `config/settings.py` contains adjustable parameters such as token limits, temperature, and UI preferences.
+- Audio & TTS
+  - Voice and output volume can be adjusted via voice or UI slider.
 
-📌 Roadmap
+Security & Privacy
+- Secrets: `.gitignore` excludes `data/encryption.key`, databases, logs, caches, and virtualenv.
+- Permissions: Certain power/display operations may require elevated privileges.
+- Safety: Consider enabling confirmation prompts for shutdown/restart in production.
 
- Voice recognition & hotword
+Roadmap
+- Safer power actions (confirmations)
+- Extended display controls (resolution, refresh rate)
+- Better multilingual voice packs and hotword configuration
+- Plugin system for smart‑home and productivity integrations
+- Packaged installer via `pyinstaller`
 
- Command execution system
+Contributing
+- Issues and PRs are welcome!
+- Suggested flow:
+  - Fork the repo
+  - Create a feature branch
+  - Commit with clear messages
+  - Open a pull request with rationale and screenshots/logs where relevant
 
- Gmail integration
-
- 3D model viewer
-
- Advanced NLP model training
-
- Full robotic integration (Raspberry Pi / Jetson Nano)
-
- Vercept-like advanced productivity features
-
-🤝 Contributing
-
-Contributions are welcome!
-
-Fork the repo
-
-Create a feature branch
-
-Submit a pull request
-
-📜 License
-
-This project is licensed under the MIT License.
+License
+- MIT — see the license notice in this repository.
