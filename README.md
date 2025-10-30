@@ -16,8 +16,11 @@ Table of Contents
 - Installation
 - Quick Start
 - Voice Commands
+ - Architecture
 - Configuration
 - Security & Privacy
+ - Troubleshooting
+ - FAQ
 - Roadmap
 - Contributing
 - License
@@ -43,6 +46,22 @@ Features
   - System stats (CPU, memory, battery)
 - Vision & Smart Home (extensible)
   - Computer vision hooks and smart‑home brightness logic available for future expansion
+
+Architecture
+- Core
+  - `SAM.py`: Entry point, command routing, voice/system handlers, AI integrations
+  - `core/base_assistant.py`: Conversation/history management and helper utilities
+- UI
+  - `ui/main_window.py`: Desktop UI built with `customtkinter` (speech input/output)
+- Features
+  - `features/voice_control.py`: Voice recognition and TTS configuration
+  - `features/smart_home.py`: Brightness logic and extensible device hooks
+  - `features/computer_vision.py`: Vision utilities and image workflows
+  - `features/productivity.py`, `features/security.py`, `features/entertainment.py`, `features/health_wellness.py`
+- Config & Data
+  - `config/settings.py`: Tunables for AI, UI, and behavior
+  - `data/`: Local databases and encryption key (ignored)
+
 
 Requirements
 - Windows 10 or 11 (administrator privileges recommended for some power actions)
@@ -83,6 +102,19 @@ Voice Commands
 - General Questions
   - Ask anything; responses use the configured AI backend.
 
+Examples
+```text
+"mute"
+"set volume to 25 percent"
+"brightness up by 10"
+"switch display to extend"
+"pc screen only"
+"sleep the PC"
+"what's my battery level"
+"how to center a div in CSS?"
+```
+
+
 Configuration
 - Environment variables
   - Set your AI API key(s) via environment variables (e.g., `setx AI_API_KEY "<your-key>"`), or load via a secure config file.
@@ -90,6 +122,31 @@ Configuration
   - `config/settings.py` contains adjustable parameters such as token limits, temperature, and UI preferences.
 - Audio & TTS
   - Voice and output volume can be adjusted via voice or UI slider.
+
+Troubleshooting
+- Missing files warnings
+  - First run may warn about `user_commands.json` or `hotwords.json`. Defaults are used; you can provide custom files later.
+- Permissions
+  - Power and display actions may require admin rights or elevated PowerShell session.
+- Brightness on external monitors
+  - Not all external displays support programmatic brightness changes. Use device controls if voice control doesn’t work.
+- Audio device selection
+  - If the wrong device is controlled, set your default output device in Windows Sound settings.
+- Microphone issues
+  - Ensure microphone is enabled, selected as default, and not muted. Consider reducing input noise.
+
+FAQ
+- Can I run it on macOS/Linux?
+  - Core features may work, but system controls are implemented for Windows 10/11.
+- How do I package it?
+  - You can experiment with `pyinstaller`:
+    ```bash
+    pyinstaller --noconsole --onefile SAM.py
+    ```
+    Review generated spec and include UI assets as needed.
+- Does it need internet?
+  - Voice recognition and AI responses may use online services; system controls work locally.
+
 
 Security & Privacy
 - Secrets: `.gitignore` excludes `data/encryption.key`, databases, logs, caches, and virtualenv.
@@ -102,6 +159,8 @@ Roadmap
 - Better multilingual voice packs and hotword configuration
 - Plugin system for smart‑home and productivity integrations
 - Packaged installer via `pyinstaller`
+ - Optional local/offline modes for voice and chat
+ - Centralized model/provider config and key management
 
 Contributing
 - Issues and PRs are welcome!
@@ -110,6 +169,9 @@ Contributing
   - Create a feature branch
   - Commit with clear messages
   - Open a pull request with rationale and screenshots/logs where relevant
+ - Style & Scope
+   - Keep changes focused and minimal; match existing code style
+   - Add tests or logs where practical to ease review
 
 License
 - MIT — see the license notice in this repository.
