@@ -14,6 +14,7 @@ import re
 
 from core.base_assistant import BaseAssistant
 from config.settings import VOICE_CONFIG
+from config.settings import AI_CONFIG
 
 class VoiceController:
     """Advanced voice control with multiple features"""
@@ -144,6 +145,18 @@ class VoiceController:
             ["conversation mode off", "command mode"],
             self.disable_conversation_mode,
             "Disable conversation mode"
+        )
+
+        # Memory-related commands
+        self.register_command(
+            ["remember that *", "note that *"],
+            self.remember_that,
+            "Remember a fact about the user"
+        )
+        self.register_command(
+            ["what do you remember about me", "my memories"],
+            self.recall_user_memories,
+            "Recall user-related memories"
         )
     
     async def start_listening(self):
@@ -294,15 +307,68 @@ class VoiceController:
     async def _handle_general_query(self, text: str):
         """Handle general queries using AI"""
         try:
-            # This would integrate with your AI module
-            response = f"I heard you say: {text}. This would be processed by the AI module."
-            
+            # Fall back to echo if LLM not available
+            if not getattr(self.assistant, "llm", None):
+                response = f"You said: {text}. (LLM is not configured)"
+            else:
+                context = self.assistant.get_context()
+                memories = []
+                try:
+                    memories = self.assistant.memory.get_relevant_memories(text)
+                except Exception:
+                    memories = []
+
+                # Run generation in a thread so we don't block the event loop
+                response = await asyncio.to_thread(
+                    self.assistant.llm.generate_response,
+                    user_text=text,
+                    context=context,
+                    persona=AI_CONFIG.get("personality"),
+                    memories=memories,
+                    max_tokens=AI_CONFIG.get("max_tokens", 512),
+                    temperature=AI_CONFIG.get("temperature", 0.7),
+                )
+
+            # Speak and record
             self.speak(response)
             self.assistant.add_to_conversation("assistant", response)
             
         except Exception as e:
             self.logger.error(f"Error handling general query: {e}")
             self.speak("I'm sorry, I couldn't process that request.")
+
+    def remember_that(self, text: str):
+        """Store a memory from a voice command like 'remember that ...'"""
+        try:
+            # Extract the part after 'remember that' or 'note that'
+            lowered = text.lower()
+            trigger_phrases = ["remember that", "note that"]
+            for phrase in trigger_phrases:
+                if phrase in lowered:
+                    content = text[lowered.find(phrase) + len(phrase):].strip()
+                    if content:
+                        self.assistant.memory.add_memory(content, tags=["user"])
+                        self.speak("Got it. I'll remember that.")
+                        return
+            self.speak("Please say 'remember that' followed by what you want me to remember.")
+        except Exception as e:
+            self.logger.error(f"Error storing memory: {e}")
+            self.speak("I couldn't store that memory.")
+
+    def recall_user_memories(self, text: str):
+        """Recall and speak a summary of user-related memories"""
+        try:
+            memories = self.assistant.memory.get_memories_by_tag("user")
+            if not memories:
+                self.speak("I don't have any personal memories yet. You can say 'remember that ...' to teach me.")
+                return
+            # Summarize last few memories
+            last = memories[-5:]
+            summary = "; ".join(m["text"] for m in last)
+            self.speak(f"Here's what I remember: {summary}")
+        except Exception as e:
+            self.logger.error(f"Error recalling memories: {e}")
+            self.speak("I couldn't recall memories right now.")
     
     def speak(self, text: str, interrupt: bool = False):
         """Text-to-speech with queue management"""

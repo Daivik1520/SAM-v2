@@ -45,3 +45,6 @@ wikipedia>=1.4.0
 
 # Build Tools (for creating executable)
 pyinstaller>=5.13.0
+
+# LLM Providers (optional)
+google-generativeai>=0.7.0

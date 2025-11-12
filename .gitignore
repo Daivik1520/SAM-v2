@@ -11,6 +11,9 @@ build/
 dist/
 *.egg-info/
 
+# Local secrets and overrides (do not commit)
+config/local_settings.py
+
 # Virtual environments
 .venv/
 venv/

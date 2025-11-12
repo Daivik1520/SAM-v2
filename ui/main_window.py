@@ -15,7 +15,7 @@ import numpy as np
 import cv2
 
 from core.base_assistant import BaseAssistant
-from config.settings import UI_CONFIG
+from config.settings import UI_CONFIG, API_KEYS
 
 class MainWindow:
     """Main application window with modern UI"""
@@ -851,7 +851,7 @@ class MainWindow:
     
     def show_settings(self):
         """Show settings dialog"""
-        settings_window = SettingsWindow(self.root, self.assistant)
+        settings_window = SettingsWindow(self, self.assistant)
     
     # Control methods
     def toggle_voice_control(self):
@@ -1012,11 +1012,11 @@ class SettingsWindow:
     """Settings dialog window"""
     
     def __init__(self, parent, assistant):
-        self.parent = parent
+        self.parent = parent  # MainWindow instance
         self.assistant = assistant
         
         # Create settings window
-        self.window = ctk.CTkToplevel(parent)
+        self.window = ctk.CTkToplevel(parent.root)
         self.window.title("Settings")
         self.window.geometry("600x500")
         self.window.transient(parent)
@@ -1043,12 +1043,14 @@ class SettingsWindow:
         self.tabview.add("Voice")
         self.tabview.add("Security")
         self.tabview.add("Appearance")
+        self.tabview.add("AI")
         
         # Populate tabs
         self.create_general_settings()
         self.create_voice_settings()
         self.create_security_settings()
         self.create_appearance_settings()
+        self.create_ai_settings()
         
         # Buttons
         button_frame = ctk.CTkFrame(self.window)
@@ -1182,8 +1184,81 @@ class SettingsWindow:
         font_size_slider.grid(row=5, column=0, padx=20, pady=5, sticky="ew")
         
         appearance_frame.grid_columnconfigure(0, weight=1)
+
+    def create_ai_settings(self):
+        """Create AI/API settings, including a field to set the Gemini API key"""
+        ai_frame = self.tabview.tab("AI")
+
+        # Provider info
+        provider_label = ctk.CTkLabel(ai_frame, text="LLM Provider: Gemini")
+        provider_label.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="w")
+
+        # Gemini API Key field
+        key_label = ctk.CTkLabel(ai_frame, text="Gemini API Key:")
+        key_label.grid(row=1, column=0, padx=20, pady=(10, 5), sticky="w")
+
+        self.gemini_key_entry = ctk.CTkEntry(ai_frame, placeholder_text="Enter your Gemini API key")
+        self.gemini_key_entry.grid(row=2, column=0, padx=20, pady=5, sticky="ew")
+
+        # Pre-fill with current value if present (masked)
+        try:
+            current_key = API_KEYS.get("gemini")
+            if current_key and len(current_key) > 8:
+                masked = current_key[:4] + "…" + current_key[-4:]
+                # Show masked value as placeholder
+                self.gemini_key_entry.configure(placeholder_text=f"Current: {masked}")
+        except Exception:
+            pass
+
+        # Save key button
+        save_key_btn = ctk.CTkButton(ai_frame, text="Save API Key", command=self.save_api_key)
+        save_key_btn.grid(row=3, column=0, padx=20, pady=10, sticky="w")
+
+        # Info text
+        info_text = ctk.CTkLabel(
+            ai_frame,
+            text="Your key is stored locally in config/local_settings.py (not committed).",
+            font=ctk.CTkFont(size=11)
+        )
+        info_text.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        ai_frame.grid_columnconfigure(0, weight=1)
     
     def save_settings(self):
         """Save settings"""
-        # This would save settings to configuration
+        # Save general settings (placeholder)
         self.window.destroy()
+
+    def save_api_key(self):
+        """Handle saving the Gemini API key from UI"""
+        try:
+            key = (self.gemini_key_entry.get() or "").strip()
+            if not key:
+                # No key entered; nothing to do
+                return
+            ok = False
+            if hasattr(self.assistant, "set_api_key"):
+                ok = self.assistant.set_api_key("gemini", key, persist=True)
+            if ok:
+                # Try to reinitialize AI provider if method exists
+                try:
+                    if hasattr(self.assistant, "initialize_ai"):
+                        self.assistant.initialize_ai()
+                except Exception:
+                    pass
+                # Update status in the main window
+                try:
+                    if hasattr(self.parent, "update_status"):
+                        self.parent.update_status("Gemini API key saved. AI is ready.")
+                except Exception:
+                    pass
+                # Close settings window
+                self.window.destroy()
+            else:
+                try:
+                    if hasattr(self.parent, "update_status"):
+                        self.parent.update_status("Failed to save API key. Check logs.")
+                except Exception:
+                    pass
+        except Exception as e:
+            logging.error(f"Error saving API key: {e}")

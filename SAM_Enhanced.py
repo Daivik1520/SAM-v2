@@ -21,6 +21,7 @@ from features.health_wellness import HealthWellnessController
 from features.security import SecurityController
 from ui.main_window import MainWindow
 from config.settings import *
+from core.llm.gemini_provider import GeminiProvider
 
 class EnhancedSAMAssistant(BaseAssistant):
     """Enhanced SAM AI Assistant with all features"""
@@ -28,6 +29,9 @@ class EnhancedSAMAssistant(BaseAssistant):
     def __init__(self):
         super().__init__()
         
+        # Initialize AI provider (LLM)
+        self.initialize_ai()
+
         # Initialize feature controllers
         self.initialize_features()
         
@@ -76,6 +80,32 @@ class EnhancedSAMAssistant(BaseAssistant):
             
         except Exception as e:
             self.logger.error(f"Error initializing features: {e}")
+
+    def initialize_ai(self):
+        """Initialize the LLM provider based on configuration"""
+        try:
+            if AI_CONFIG.get("provider") == "gemini" and API_KEYS.get("gemini"):
+                self.llm = GeminiProvider(api_key=API_KEYS.get("gemini"), model_name=AI_CONFIG.get("model_name"))
+                self.logger.info("Gemini LLM provider initialized")
+            else:
+                self.llm = None
+                self.logger.warning("No LLM provider configured or API key missing")
+        except Exception as e:
+            self.logger.error(f"Error initializing LLM provider: {e}")
+            self.llm = None
+
+    def set_api_key(self, provider: str, key: str, persist: bool = True) -> bool:
+        """Override to reinitialize AI provider when API keys change."""
+        ok = super().set_api_key(provider, key, persist)
+        if ok:
+            # Reinitialize LLM if relevant
+            try:
+                if provider == "gemini":
+                    self.initialize_ai()
+                    self.emit_event("notification", {"type": "info", "message": "Gemini API key updated. AI provider reinitialized."})
+            except Exception as e:
+                self.logger.error(f"Error reinitializing AI after key update: {e}")
+        return ok
     
     async def start(self):
         """Start the enhanced assistant"""

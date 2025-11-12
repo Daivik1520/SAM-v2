@@ -43,13 +43,16 @@ VOICE_CONFIG = {
 
 # AI Configuration
 AI_CONFIG = {
-    "model_name": "gpt-3.5-turbo",
+    # Provider can be: "gemini" (Google), "openai", etc.
+    "provider": "gemini",
+    "model_name": "gemini-1.5-flash",
     "max_tokens": 2000,
     "temperature": 0.7,
     "context_window": 10,
     "enable_rag": True,
     "enable_memory": True,
-    "personality": "helpful_assistant"
+    # Style/persona for more human-like responses
+    "personality": "You are SAM, a friendly, empathetic, and highly capable personal AI assistant. Speak naturally like a human, be concise unless asked for details, and adapt to the user's preferences."
 }
 
 # Computer Vision Configuration
@@ -88,8 +91,23 @@ API_KEYS = {
     "weather": os.getenv("WEATHER_API_KEY"),
     "news": os.getenv("NEWS_API_KEY"),
     "spotify": os.getenv("SPOTIFY_API_KEY"),
-    "calendar": os.getenv("CALENDAR_API_KEY")
+    "calendar": os.getenv("CALENDAR_API_KEY"),
+    # Gemini (Google): set GEMINI_API_KEY in your environment
+    "gemini": os.getenv("GEMINI_API_KEY"),
 }
+
+# Optional: load local overrides without committing secrets
+try:
+    from config.local_settings import OVERRIDES as LOCAL_OVERRIDES  # type: ignore
+    # Allow overriding API keys and AI config locally
+    if isinstance(LOCAL_OVERRIDES, dict):
+        if "API_KEYS" in LOCAL_OVERRIDES and isinstance(LOCAL_OVERRIDES["API_KEYS"], dict):
+            API_KEYS.update(LOCAL_OVERRIDES["API_KEYS"])
+        if "AI_CONFIG" in LOCAL_OVERRIDES and isinstance(LOCAL_OVERRIDES["AI_CONFIG"], dict):
+            AI_CONFIG.update(LOCAL_OVERRIDES["AI_CONFIG"])
+except Exception:
+    # No local overrides present; safe to ignore
+    pass
 
 # Feature Flags
 FEATURES = {

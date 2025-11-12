@@ -11,6 +11,9 @@ from dataclasses import dataclass
 import json
 
 from config.settings import *
+from pathlib import Path
+import importlib
+from core.memory import MemoryService
 
 @dataclass
 class AssistantState:
@@ -43,6 +46,10 @@ class BaseAssistant:
         self.conversation_history: List[Dict] = []
         self.user_preferences: Dict = {}
         self.learned_patterns: Dict = {}
+        self.memory = MemoryService(DATA_DIR)
+
+        # Pluggable LLM provider (set by EnhancedSAMAssistant)
+        self.llm = None
         
         # Performance metrics
         self.metrics = {
@@ -53,6 +60,95 @@ class BaseAssistant:
         }
         
         self.logger.info("Base Assistant initialized")
+
+    # --- Runtime configuration helpers ---
+    def set_api_key(self, provider: str, key: str, persist: bool = True) -> bool:
+        """Set an API key at runtime and optionally persist it to local overrides.
+
+        This keeps the design modular: keys are centrally managed and can be
+        replaced without touching feature code.
+        """
+        try:
+            if not provider or not key:
+                raise ValueError("Provider and key must be non-empty")
+
+            # Update in-memory keys
+            API_KEYS[provider] = key
+            self.logger.info(f"API key updated for provider: {provider}")
+
+            if persist:
+                self._persist_local_api_key(provider, key)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to set API key for {provider}: {e}")
+            return False
+
+    def _persist_local_api_key(self, provider: str, key: str):
+        """Persist the API key in config/local_settings.py as OVERRIDES.
+
+        Merges with existing OVERRIDES if present.
+        """
+        try:
+            config_dir = BASE_DIR / "config"
+            local_settings_path = config_dir / "local_settings.py"
+
+            overrides = {"API_KEYS": {provider: key}}
+
+            # Try to load existing overrides for merge
+            try:
+                spec = importlib.util.spec_from_file_location("config.local_settings", str(local_settings_path))
+                if spec and spec.loader and local_settings_path.exists():
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)  # type: ignore
+                    existing = getattr(module, "OVERRIDES", {})
+                    if isinstance(existing, dict):
+                        # Merge API_KEYS
+                        api_keys = dict(existing.get("API_KEYS", {}))
+                        api_keys[provider] = key
+                        overrides["API_KEYS"] = api_keys
+                        # Preserve AI_CONFIG if present
+                        if "AI_CONFIG" in existing and isinstance(existing["AI_CONFIG"], dict):
+                            overrides["AI_CONFIG"] = existing["AI_CONFIG"]
+            except Exception:
+                # Ignore loading issues; we'll write fresh overrides
+                pass
+
+            # Write overrides file
+            content_lines = [
+                '"""\nAuto-generated local overrides for SAM.\nDo not commit this file; it contains secrets.\n"""',
+                "",
+                "OVERRIDES = {",
+            ]
+
+            # API_KEYS section
+            content_lines.append('    "API_KEYS": {')
+            for prov, val in overrides.get("API_KEYS", {}).items():
+                safe_val = val.replace("\\", "\\\\").replace("\"", "\\\"")
+                content_lines.append(f'        "{prov}": "{safe_val}",')
+            content_lines.append('    },')
+
+            # Optional AI_CONFIG section
+            if "AI_CONFIG" in overrides:
+                content_lines.append('    "AI_CONFIG": {')
+                for k, v in overrides["AI_CONFIG"].items():
+                    if isinstance(v, str):
+                        sv = v.replace("\\", "\\\\").replace('"', '\\"')
+                        content_lines.append(f'        "{k}": "{sv}",')
+                    elif isinstance(v, bool):
+                        content_lines.append(f'        "{k}": {str(v)},')
+                    else:
+                        content_lines.append(f'        "{k}": {v},')
+                content_lines.append('    },')
+
+            content_lines.append("}")
+
+            config_dir.mkdir(exist_ok=True)
+            with open(local_settings_path, "w") as f:
+                f.write("\n".join(content_lines) + "\n")
+
+            self.logger.info(f"Persisted API key for {provider} to {local_settings_path}")
+        except Exception as e:
+            self.logger.error(f"Error persisting API key: {e}")
     
     def setup_logging(self):
         """Setup logging configuration"""
@@ -170,6 +266,12 @@ class BaseAssistant:
         """Stop the assistant"""
         self.running = False
         self.save_user_data()
+        # Persist memory on shutdown
+        try:
+            # MemoryService persists on each add; nothing to do here.
+            pass
+        except Exception as e:
+            self.logger.error(f"Error saving memory: {e}")
         self.logger.info("Assistant stopped")
         self.emit_event("assistant_stopped")
     

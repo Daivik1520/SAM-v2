@@ -31,6 +31,7 @@ import json
 import shutil
 import math
 from typing import Optional, Dict, List
+from features.web_automation import YouTubeAutomation, BrowserController, SystemLauncher
 try:
     from serpapi import GoogleSearch  # Optional dependency
 except Exception:
@@ -757,6 +758,135 @@ class VoiceVisualizer(ctk.CTkFrame):
             self.canvas.coords(bar["id"], 
                              self.canvas.coords(bar["id"])[0], 50,
                              self.canvas.coords(bar["id"])[2], 50)
+
+
+class PlannerStepPanel(ctk.CTkFrame):
+    """Compact step-by-step execution panel shown above the chat area.
+    Modular component that can be reused or replaced independently.
+
+    Usage:
+      panel = PlannerStepPanel(parent, theme="copilot_dark")
+      panel.set_steps(["open youtube", "play music"])  # initializes rows
+      panel.update_step(1, status="running")
+      panel.update_step(1, status="success", message="YouTube opened", elapsed=0.8)
+    """
+
+    def __init__(self, parent, theme="copilot_dark", **kwargs):
+        self.theme = theme
+        self.colors = THEMES.get(theme, THEMES["copilot_dark"])
+        super().__init__(parent, fg_color=self.colors["card"], corner_radius=10, **kwargs)
+        self.rows = []
+        self.header = ctk.CTkLabel(
+            self, text="Planner", font=("Segoe UI", 12, "bold"), text_color=self.colors["accent"]
+        )
+        self.header.pack(anchor="w", padx=12, pady=(10, 6))
+        self.container = ctk.CTkFrame(self, fg_color="transparent")
+        self.container.pack(fill="x", padx=10, pady=(0, 10))
+        self.pack_forget()  # hidden by default
+
+    def set_steps(self, steps):
+        # Clear previous rows
+        for r in self.rows:
+            try:
+                r["frame"].destroy()
+            except Exception:
+                pass
+        self.rows = []
+        # Build rows
+        for i, step in enumerate(steps, 1):
+            row = ctk.CTkFrame(self.container, fg_color="transparent")
+            row.pack(fill="x", pady=4)
+            icon = ctk.CTkLabel(row, text="⏳", font=("Segoe UI", 12))
+            icon.pack(side="left", padx=(2, 8))
+            title = ctk.CTkLabel(row, text=f"Step {i}: {step}", font=("Segoe UI", 11), text_color=self.colors["fg"]) 
+            title.pack(side="left")
+            status = ctk.CTkLabel(row, text="pending", font=("Segoe UI", 10), text_color=self.colors["subfg"]) 
+            status.pack(side="right")
+            self.rows.append({"frame": row, "icon": icon, "title": title, "status": status})
+        # Show panel
+        self.pack(fill="x", padx=20, pady=(6, 0))
+
+    def update_step(self, index, status, message=None, elapsed=None):
+        # index is 1-based
+        if not (1 <= index <= len(self.rows)):
+            return
+        row = self.rows[index - 1]
+        colors = self.colors
+        # Map status to icon and color
+        mapping = {
+            "pending": ("⏳", colors["subfg"]),
+            "running": ("▶️", colors["accent"]),
+            "success": ("✅", colors["success"]),
+            "error": ("❌", colors["error"]),
+        }
+        icon_text, status_color = mapping.get(status, ("⏳", colors["subfg"]))
+        try:
+            row["icon"].configure(text=icon_text, text_color=status_color)
+            status_text = status
+            if elapsed is not None:
+                status_text += f" · {elapsed:.2f}s"
+            row["status"].configure(text=status_text, text_color=status_color)
+            if message:
+                # Append a small subtext line for details
+                details = ctk.CTkLabel(row["frame"], text=f"{message}", font=("Segoe UI", 10), text_color=colors["subfg"]) 
+                details.pack(fill="x", padx=(28, 0))
+        except Exception:
+            pass
+
+    def hide(self):
+        try:
+            self.pack_forget()
+        except Exception:
+            pass
+
+
+class ToastManager:
+    """Lightweight toast notifications manager.
+    Creates small temporary windows in the bottom-right corner of the screen.
+    Modular and replaceable without touching core assistant logic.
+    """
+
+    def __init__(self, root, theme="copilot_dark"):
+        self.root = root
+        self.theme = theme
+        self.colors = THEMES.get(theme, THEMES["copilot_dark"])
+        self.toasts = []
+
+    def show(self, text, kind="info", duration_ms=2200):
+        # Compute stacking position relative to root window
+        try:
+            x = self.root.winfo_rootx() + self.root.winfo_width() - 320
+            y = self.root.winfo_rooty() + self.root.winfo_height() - 80 - (len(self.toasts) * 70)
+        except Exception:
+            x, y = 100, 100
+        win = ctk.CTkToplevel(self.root)
+        win.overrideredirect(True)
+        win.geometry(f"300x60+{int(x)}+{int(y)}")
+        win.configure(fg_color=self.colors["card"])
+
+        # Icon/color based on kind
+        icon_map = {
+            "info": ("ℹ️", self.colors["accent"]),
+            "success": ("✅", self.colors["success"]),
+            "warning": ("⚠️", self.colors["warning"]),
+            "error": ("❌", self.colors["error"]),
+        }
+        icon_text, icon_color = icon_map.get(kind, ("ℹ️", self.colors["accent"]))
+
+        ctk.CTkLabel(win, text=icon_text, font=("Segoe UI", 14), text_color=icon_color).pack(side="left", padx=(10, 8), pady=10)
+        ctk.CTkLabel(win, text=text, wraplength=240, font=("Segoe UI", 11), text_color=self.colors["fg"]).pack(side="left", padx=(0, 10), pady=10)
+
+        self.toasts.append(win)
+
+        def _close():
+            try:
+                if win in self.toasts:
+                    self.toasts.remove(win)
+                win.destroy()
+            except Exception:
+                pass
+
+        win.after(duration_ms, _close)
     
     def animate_bars(self):
         """Animate the voice visualization bars."""
@@ -909,6 +1039,363 @@ class ModernButton(ctk.CTkButton):
         )
         self.original_fg_color = colors["accent"]
 
+class NaturalLanguageNavigator:
+    """Modular natural language system navigator.
+    Interprets high-level navigation requests and executes OS-level actions.
+    """
+
+    def __init__(self, assistant):
+        self.assistant = assistant
+        self.os_name = platform.system().lower()
+
+    def _open_path(self, path):
+        try:
+            if self.os_name.startswith('win'):
+                try:
+                    os.startfile(path)
+                except Exception:
+                    subprocess.Popen(['explorer', path])
+            elif self.os_name == 'darwin':
+                subprocess.Popen(['open', path])
+            else:
+                subprocess.Popen(['xdg-open', path])
+            return f"📂 Opening {path}"
+        except Exception as e:
+            return f"❌ Unable to open {path}: {e}"
+
+    def _open_settings(self, section=None):
+        try:
+            if self.os_name.startswith('win'):
+                uri_map = {
+                    None: 'ms-settings:',
+                    'display': 'ms-settings:display',
+                    'sound': 'ms-settings:sound',
+                    'wifi': 'ms-settings:network-wifi',
+                    'bluetooth': 'ms-settings:bluetooth',
+                    'network': 'ms-settings:network',
+                    'battery': 'ms-settings:battery',
+                    'storage': 'ms-settings:storagesense',
+                }
+                uri = uri_map.get(section, 'ms-settings:')
+                try:
+                    os.startfile(uri)
+                except Exception:
+                    os.system(f"start {uri}")
+                return f"⚙️ Opening Settings{(' → ' + section) if section else ''}"
+            elif self.os_name == 'darwin':
+                # macOS System Settings
+                subprocess.Popen(['open', '/System/Applications/System Settings.app'])
+                return "⚙️ Opening System Settings"
+            else:
+                # Linux: try gnome-control-center
+                subprocess.Popen(['gnome-control-center'])
+                return "⚙️ Opening System Settings"
+        except Exception as e:
+            return f"❌ Unable to open Settings: {e}"
+
+    def _known_folder_path(self, name):
+        home = os.path.expanduser('~')
+        mapping = {
+            'downloads': os.path.join(home, 'Downloads'),
+            'documents': os.path.join(home, 'Documents'),
+            'pictures': os.path.join(home, 'Pictures'),
+            'photos': os.path.join(home, 'Pictures'),
+            'music': os.path.join(home, 'Music'),
+            'videos': os.path.join(home, 'Videos'),
+            'desktop': os.path.join(home, 'Desktop'),
+        }
+        return mapping.get(name)
+
+    def _press(self, *keys):
+        try:
+            pyautogui.hotkey(*keys)
+            return True
+        except Exception:
+            return False
+
+    def handle(self, text):
+        """Parse text and execute navigation actions. Returns a status string."""
+        cmd = text.lower().strip()
+
+        # Open known folders: "go to downloads", "open documents"
+        m = re.search(r"\b(go to|open|show)\s+(downloads|documents|pictures|photos|music|videos|desktop)\b", cmd)
+        if m:
+            folder = m.group(2)
+            path = self._known_folder_path(folder)
+            if path and os.path.exists(path):
+                return self._open_path(path)
+            else:
+                return f"❌ I couldn't find your {folder} folder."
+
+        # Show desktop / minimize all
+        if re.search(r"\b(show\s+desktop|minimize\s+all\s+windows)\b", cmd):
+            ok = self._press('win', 'd') if self.os_name.startswith('win') else self._press('command', 'f3')
+            return "🖥️ Showing desktop" if ok else "❌ Couldn't show desktop via shortcut"
+
+        # Switch windows: next/previous
+        m = re.search(r"\b(switch|cycle)\s+(window|app)(?:\s+(next|previous))?\b", cmd)
+        if m:
+            direction = m.group(3) or 'next'
+            if self.os_name.startswith('win'):
+                if direction == 'previous':
+                    pyautogui.keyDown('alt'); pyautogui.press('tab'); pyautogui.keyUp('alt')
+                else:
+                    pyautogui.keyDown('alt'); pyautogui.press('tab'); pyautogui.keyUp('alt')
+            else:
+                self._press('alt', 'tab')
+            return f"🪟 Switching {direction} window"
+
+        # Maximize / minimize current window
+        m = re.search(r"\b(maximize|minimize|restore)\s+(this\s+)?window\b", cmd)
+        if m:
+            action = m.group(1)
+            if self.os_name.startswith('win'):
+                if action == 'maximize':
+                    ok = self._press('win', 'up')
+                elif action == 'minimize':
+                    ok = self._press('win', 'down')
+                else:
+                    ok = self._press('win', 'down')
+            else:
+                ok = self._press('command', 'm') if action == 'minimize' else self._press('command', 'ctrl', 'f')
+            return f"🪟 {action.title()} window" if ok else f"❌ Couldn't {action} window"
+
+        # Close current window/app
+        if re.search(r"\b(close\s+(this\s+)?(window|app|tab))\b", cmd):
+            if self.os_name.startswith('win'):
+                ok = self._press('alt', 'f4')
+            elif 'tab' in cmd:
+                ok = self._press('command', 'w')
+            else:
+                ok = self._press('command', 'q')
+            return "❌ Couldn't close" if not ok else "✅ Closed"
+
+        # Navigate back/forward
+        if re.search(r"\b(go\s+back|previous\s+page)\b", cmd):
+            ok = self._press('alt', 'left') if self.os_name.startswith('win') else self._press('command', 'left')
+            return "⬅️ Going back" if ok else "❌ Couldn't go back"
+        if re.search(r"\b(go\s+forward|next\s+page)\b", cmd):
+            ok = self._press('alt', 'right') if self.os_name.startswith('win') else self._press('command', 'right')
+            return "➡️ Going forward" if ok else "❌ Couldn't go forward"
+
+        # Scroll up/down
+        m = re.search(r"\bscroll\s+(up|down)(?:\s+by\s+(\d+))?\b", cmd)
+        if m:
+            direction = m.group(1)
+            amount = int(m.group(2)) if m.group(2) else 1000
+            try:
+                pyautogui.scroll(amount if direction == 'up' else -amount)
+                return f"🖱️ Scrolling {direction}"
+            except Exception as e:
+                return f"❌ Couldn't scroll: {e}"
+
+        # Open settings sections
+        m = re.search(r"\b(open|show)\s+(settings|system\s+settings)(?:\s+(for|about)\s+(display|sound|wifi|bluetooth|network|battery|storage))?\b", cmd)
+        if m:
+            section = m.group(4) if m.group(4) else None
+            return self._open_settings(section)
+
+        # Open application or website (delegate to existing logic)
+        if re.search(r"\bopen\s+.+", cmd):
+            try:
+                return self.assistant.intelligent_open_command(cmd)
+            except Exception:
+                return self.assistant.handle_file_operations(cmd)
+
+        # If we reach here, try AI-backed intent interpretation
+        try:
+            intent = self._interpret_with_ai(cmd)
+            if intent and isinstance(intent, dict):
+                action = intent.get('action')
+                target = intent.get('target')
+                if action == 'open_folder' and target:
+                    path = self._known_folder_path(target)
+                    if path and os.path.exists(path):
+                        return self._open_path(path)
+                if action == 'open_settings':
+                    return self._open_settings(target)
+                if action == 'switch_window':
+                    pyautogui.keyDown('alt'); pyautogui.press('tab'); pyautogui.keyUp('alt')
+                    return "🪟 Switching window"
+                if action == 'show_desktop':
+                    self._press('win','d')
+                    return "🖥️ Showing desktop"
+                if action == 'open_app' and target:
+                    return self.assistant.intelligent_open_command(f"open {target}")
+        except Exception as e:
+            if hasattr(self.assistant, 'logger'):
+                self.assistant.logger.debug(f"AI intent parse failed: {e}")
+
+        return "🧭 I can help you navigate your system. Try: 'show desktop', 'go to downloads', 'switch window', 'open settings for wifi', or 'scroll down'."
+
+    def _interpret_with_ai(self, text):
+        """Use the assistant's AI to extract intent in a structured way."""
+        if not hasattr(self.assistant, 'mistral_chat'):
+            return None
+        prompt = (
+            "You are a command interpreter. Extract a simple intent from the user's request for system navigation. "
+            "Respond ONLY in JSON with keys: action, target. Examples: "
+            "'go to downloads' -> {\"action\": \"open_folder\", \"target\": \"downloads\"}. "
+            "'open settings for wifi' -> {\"action\": \"open_settings\", \"target\": \"wifi\"}. "
+            "'show desktop' -> {\"action\": \"show_desktop\"}. "
+            f"User: {text}"
+        )
+        raw = self.assistant.mistral_chat(prompt)
+        try:
+            # Try to find JSON in response
+            m = re.search(r"\{[\s\S]*\}", raw)
+            if m:
+                return json.loads(m.group(0))
+        except Exception:
+            return None
+        return None
+
+
+class MultiIntentPlanner:
+    """Parse and execute compound natural language commands in sequence.
+    Splits text into steps, categorizes each, and routes to existing handlers.
+    Falls back to AI planning when needed.
+    """
+
+    def __init__(self, assistant):
+        self.assistant = assistant
+
+    def _split_into_steps(self, text):
+        # Split on common connectors: and, then, after that, next, commas, plus tolerant 'an'
+        parts = re.split(r"\s*(?:,|\band\b|\ban\b|\bthen\b|\bafter that\b|\bnext\b)\s*", text, flags=re.IGNORECASE)
+        # Filter out empty fragments
+        return [p.strip() for p in parts if p and p.strip()]
+
+    def _normalize_segment(self, segment):
+        seg = segment.strip().lower()
+        # Heuristics for media playback
+        if re.search(r"\bplay\s+(a\s+)?song\b", seg) and 'youtube' not in seg and 'music' not in seg:
+            return 'play music'
+        # Normalize common YouTube play phrasings
+        m = re.search(r"^play\s+(.+?)\s+(?:song\s+)?(?:on|in|from)\s+youtube$", seg)
+        if m:
+            return f"play {m.group(1)} on youtube"
+        # Normalize 'play <q> youtube'
+        m = re.search(r"^play\s+(.+?)\s+youtube$", seg)
+        if m:
+            return f"play {m.group(1)} on youtube"
+        # Normalize 'open youtube and/an play <q>' → two steps
+        m = re.search(r"^open\s+youtube\s+(?:and|an)\s+play\s+(.+)$", seg)
+        if m:
+            return f"open youtube and play {m.group(1)} on youtube"
+        # Normalize 'search about X' -> 'search X'
+        m = re.search(r"^search\s+about\s+(.+)$", seg)
+        if m:
+            return f"search {m.group(1)}"
+        return segment
+
+    def _execute_segment(self, segment):
+        try:
+            seg = self._normalize_segment(segment)
+            category = self.assistant._categorize_command(seg)
+            if category == 'navigation':
+                return self.assistant._handle_navigation_command(seg)
+            elif category == 'search':
+                return self.assistant._handle_search_command(seg)
+            elif category == 'media':
+                return self.assistant._handle_media_command(seg)
+            elif category == 'file':
+                return self.assistant._handle_file_command(seg)
+            elif category == 'system':
+                return self.assistant._handle_system_command(seg)
+            else:
+                # Default to AI for complex or unknown segments
+                try:
+                    return self.assistant.mistral_chat(seg)
+                except Exception:
+                    return self.assistant._get_fallback_response(seg)
+        except Exception as e:
+            return f"❌ Error executing step '{segment}': {e}"
+
+    def execute(self, text):
+        steps = self._split_into_steps(text)
+        if not steps:
+            # Try AI planning if we couldn't split
+            steps = self._interpret_with_ai(text)
+        if not steps:
+            return "🤖 I couldn't understand the sequence. Please try simpler steps, e.g., 'open youtube and play music and open google and search cats'."
+
+        # Visualize steps if supported
+        try:
+            if getattr(self.assistant, 'planner_enabled', True) and hasattr(self.assistant, 'start_planner_visual'):
+                self.assistant.start_planner_visual(steps)
+        except Exception:
+            pass
+
+        # Stream step-by-step execution
+        results = []
+        for i, step in enumerate(steps, 1):
+            msg = f"▶️ Step {i}: {step}"
+            try:
+                self.assistant.add_to_chat("SAM", msg, "system")
+            except Exception:
+                pass
+            # Notify start
+            start_ts = time.time()
+            try:
+                if hasattr(self.assistant, 'notify_step_start'):
+                    self.assistant.notify_step_start(i, step)
+            except Exception:
+                pass
+
+            result = self._execute_segment(step)
+            elapsed = time.time() - start_ts
+            # Determine success
+            success = True
+            try:
+                if isinstance(result, str) and (result.startswith("❌") or "❌" in result.lower()):
+                    success = False
+            except Exception:
+                success = True
+            results.append(f"Step {i}: {result}")
+            try:
+                self.assistant.add_to_chat("SAM", result, "jarvis")
+            except Exception:
+                pass
+            # Notify finish
+            try:
+                if hasattr(self.assistant, 'notify_step_finish'):
+                    self.assistant.notify_step_finish(i, step, success=success, message=result, elapsed=elapsed)
+            except Exception:
+                pass
+
+        summary = "\n".join(results)
+        # End visualization
+        try:
+            if hasattr(self.assistant, 'end_planner_visual'):
+                self.assistant.end_planner_visual()
+        except Exception:
+            pass
+        return f"✅ Completed {len(steps)} step(s).\n{summary}"
+
+    def _interpret_with_ai(self, text):
+        if not hasattr(self.assistant, 'mistral_chat'):
+            return None
+        prompt = (
+            "You are a planner. Break the user's request into a minimal list of executable steps. "
+            "Return ONLY JSON: {\"steps\": [\"...\", \"...\"]}. Example: "
+            "'open youtube and play a song and open google and search about cats' -> "
+            "{\"steps\": [\"open youtube\", \"play music\", \"open google\", \"search cats\"]}. "
+            f"User: {text}"
+        )
+        raw = self.assistant.mistral_chat(prompt)
+        try:
+            m = re.search(r"\{[\s\S]*\}", raw)
+            if m:
+                data = json.loads(m.group(0))
+                steps = data.get('steps')
+                if isinstance(steps, list):
+                    return steps
+        except Exception:
+            return None
+        return None
+
+
 class EnhancedJarvisGUI:
     """
     Enhanced GUI for SAM with Microsoft Copilot-inspired design.
@@ -942,15 +1429,38 @@ class EnhancedJarvisGUI:
         self.start_time = time.time()
         self.total_commands = 0
         self.avg_response_time = 0
-        
+        # Planner controls (modular)
+        self.planner_enabled = True
+        self.planning_strategy = "simple"  # simple | ai_assisted (extensible)
+        # Automation strategy: direct | simulate (mouse/keyboard)
+        self.automation_strategy = "simulate"
+        self.browser_controller = BrowserController()
+        self.system_launcher = SystemLauncher()
+
         # Initialize components
         self._initialize_ui_components()
         self._initialize_audio_components()
+
+        # Initialize modular natural language navigator for system navigation
+        try:
+            self.navigator = NaturalLanguageNavigator(self)
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.warning(f"Failed to initialize navigator: {e}")
+            self.navigator = None
+
+        # Initialize multi-intent planner for compound commands
+        try:
+            self.multi_planner = MultiIntentPlanner(self)
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.warning(f"Failed to initialize multi-intent planner: {e}")
+            self.multi_planner = None
         
         # Load user data
         self.load_user_commands()
         self.load_hotwords()
-        
+
         # Show profile selection
         self.load_or_prompt_profile()
         
@@ -973,6 +1483,14 @@ class EnhancedJarvisGUI:
         
         # Apply theme
         self.apply_theme_to_widgets()
+
+        # Initialize ToastManager after root window exists
+        try:
+            self.toast = ToastManager(self.root, theme=self.theme)
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.warning(f"ToastManager init failed: {e}")
+            self.toast = None
         
         # Start system info updates
         self.update_system_info()
@@ -1033,6 +1551,36 @@ class EnhancedJarvisGUI:
             self.tts_volume = 0.8
             if hasattr(self, 'logger'):
                 self.logger.info("TTS engine initialized")
+            # TTS queue and worker to ensure seamless, non-blocking speech
+            self.tts_queue = queue.Queue()
+            self._tts_worker_running = True
+            def _tts_worker():
+                while self._tts_worker_running:
+                    try:
+                        item = self.tts_queue.get()
+                        if item is None:
+                            break
+                        text = self._prepare_text_for_speech(item)
+                        if not text:
+                            continue
+                        self.speaking = True
+                        self._apply_enhanced_tts_settings()
+                        self.tts_engine.say(text)
+                        self.tts_engine.runAndWait()
+                    except Exception as e:
+                        print(f"TTS worker error: {e}")
+                        try:
+                            self.tts_engine = pyttsx3.init()
+                            self.update_tts_settings()
+                        except Exception:
+                            pass
+                    finally:
+                        self.speaking = False
+            try:
+                self.tts_thread = threading.Thread(target=_tts_worker, daemon=True)
+                self.tts_thread.start()
+            except Exception:
+                pass
         except Exception as e:
             print(f"TTS initialization error: {e}")
             if hasattr(self, 'logger'):
@@ -1380,6 +1928,46 @@ class EnhancedJarvisGUI:
         
         buttons_frame.columnconfigure(0, weight=1)
         buttons_frame.columnconfigure(1, weight=1)
+
+        # Navigator quick actions
+        nav_label = ctk.CTkLabel(
+            self.sidebar, 
+            text="Navigator", 
+            font=("Segoe UI", 14, "bold"), 
+            text_color=colors["fg"]
+        )
+        nav_label.pack(anchor="w", padx=20, pady=(10, 0))
+
+        nav_buttons = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        nav_buttons.pack(fill="x", padx=20, pady=10)
+
+        nav_actions = [
+            ("🖥️", "Desktop", lambda: self.process_command("show desktop")),
+            ("🔄", "Switch", lambda: self.process_command("switch window")),
+            ("📥", "Downloads", lambda: self.process_command("go to downloads")),
+            ("📶", "Wi‑Fi", lambda: self.process_command("open settings for wifi")),
+            ("↘️", "Scroll", lambda: self.process_command("scroll down")),
+            ("✨", "Multi‑Step", lambda: self.process_command("open youtube and play a song and open google and search cats")),
+        ]
+        for i, (icon, text, command) in enumerate(nav_actions):
+            row, col = i // 2, i % 2
+            btn_frame = ctk.CTkFrame(
+                nav_buttons, fg_color=colors["card"], corner_radius=8
+            )
+            btn_frame.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
+            btn = ctk.CTkButton(
+                btn_frame,
+                text=f"{icon}\n{text}",
+                font=("Segoe UI", 10),
+                fg_color=colors["card"],
+                text_color=colors["fg"],
+                hover_color=colors["hover"],
+                command=command,
+                corner_radius=6,
+            )
+            btn.pack(fill="both", expand=True)
+        nav_buttons.columnconfigure(0, weight=1)
+        nav_buttons.columnconfigure(1, weight=1)
         
         # Voice activation button
         hotword_btn = ctk.CTkButton(
@@ -2131,6 +2719,14 @@ class EnhancedJarvisGUI:
         )
         self.chat_scrollable_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
+        # Planner step panel (hidden by default, shown when multi-intent runs)
+        try:
+            self.planner_panel = PlannerStepPanel(chat_container, theme=self.theme)
+            # Initially hide; will be shown via start_planner_visual
+            self.planner_panel.hide()
+        except Exception:
+            self.planner_panel = None
+
     def setup_input_area(self) -> None:
         """
         Set up the modern AI input area with proper text input, scrollbar, and control buttons.
@@ -2242,7 +2838,7 @@ class EnhancedJarvisGUI:
         suggestions_frame = ctk.CTkFrame(buttons_frame, fg_color="transparent")
         suggestions_frame.pack(side="left", fill="x", expand=True, pady=5)
         
-        suggestions = ["🌤️ Weather", "🧮 Calculate", "🔍 Search", "💻 System"]
+        suggestions = ["🌤️ Weather", "🧮 Calculate", "🔍 Search", "💻 System", "🧭 Navigate", "✨ Multi‑step"]
         for suggestion in suggestions:
             chip = ctk.CTkButton(
                 suggestions_frame,
@@ -2305,6 +2901,17 @@ class EnhancedJarvisGUI:
         
         # Initially disable stop button
         self.stop_btn.configure(state="disabled")
+
+        # Tip hint for multi-step commands
+        tip_frame = ctk.CTkFrame(input_container, fg_color="transparent")
+        tip_frame.pack(fill="x", pady=(2, 0))
+        tip_label = ctk.CTkLabel(
+            tip_frame,
+            text="Tip: Chain steps with 'and' or ',' e.g. open youtube and play a song and open google and search cats",
+            font=("Segoe UI", 10),
+            text_color=colors["subfg"]
+        )
+        tip_label.pack(anchor="w", padx=8)
     
     def on_input_key_press(self, event):
         """Handle key presses in the text input."""
@@ -2318,13 +2925,17 @@ class EnhancedJarvisGUI:
             "🌤️ Weather": "weather",
             "🧮 Calculate": "calculate 2 + 2",
             "🔍 Search": "search python programming",
-            "💻 System": "system info"
+            "💻 System": "system info",
+            "🧭 Navigate": "show desktop",
+            "✨ Multi‑step": "open youtube and play a song and open google and search cats",
         }
         
         if suggestion in suggestion_map:
             self.input_entry.delete("1.0", tk.END)
             self.input_entry.insert("1.0", suggestion_map[suggestion])
             self.on_user_input()
+
+        # Add a tip hint below input suggesting multi‑step commands
 
     def show_placeholder(self) -> None:
         """Show placeholder text in the input entry if empty."""
@@ -2348,6 +2959,46 @@ class EnhancedJarvisGUI:
     def on_input_focus_out(self, event: object) -> None:
         """Event handler for input entry focus out; shows placeholder."""
         self.show_placeholder()
+
+    # ===== Planner visualization callbacks (modular, easy to replace) =====
+    def start_planner_visual(self, steps):
+        """Show the planner panel with provided steps and a toast notification."""
+        try:
+            if getattr(self, 'planner_panel', None) is not None:
+                self.planner_panel.set_steps(steps)
+            if getattr(self, 'toast', None):
+                self.toast.show(f"Planning {len(steps)} step(s)", kind="info")
+        except Exception:
+            pass
+
+    def notify_step_start(self, index, step):
+        try:
+            if getattr(self, 'planner_panel', None) is not None:
+                self.planner_panel.update_step(index, status="running")
+            if getattr(self, 'toast', None):
+                self.toast.show(f"Step {index} started: {step}", kind="info", duration_ms=1600)
+        except Exception:
+            pass
+
+    def notify_step_finish(self, index, step, success=True, message=None, elapsed=None):
+        try:
+            if getattr(self, 'planner_panel', None) is not None:
+                self.planner_panel.update_step(index, status=("success" if success else "error"), message=message, elapsed=elapsed)
+            if getattr(self, 'toast', None):
+                self.toast.show(
+                    f"Step {index} {'✓' if success else '✗'} · {elapsed:.2f}s",
+                    kind=("success" if success else "error"),
+                    duration_ms=2200,
+                )
+        except Exception:
+            pass
+
+    def end_planner_visual(self):
+        try:
+            if getattr(self, 'toast', None):
+                self.toast.show("Planner finished", kind="success", duration_ms=1800)
+        except Exception:
+            pass
 
     def setup_status_bar(self) -> None:
         """
@@ -2423,6 +3074,12 @@ class EnhancedJarvisGUI:
             
             # Update all UI components with new theme (without animation overlay)
             self.apply_theme_to_widgets()
+
+            # Create/update background gradient layer
+            try:
+                self._create_background_gradient()
+            except Exception:
+                pass
             
             # Update status
             if hasattr(self, 'status_label'):
@@ -2445,6 +3102,11 @@ class EnhancedJarvisGUI:
             # Update main window
             if hasattr(self, 'root'):
                 self.root.configure(fg_color=colors["bg"])
+                try:
+                    # Redraw background gradient to match theme
+                    self._draw_background_gradient(colors["gradient_start"], colors["gradient_end"]) 
+                except Exception:
+                    pass
             
             # Update main content area
             if hasattr(self, 'main_frame'):
@@ -2530,6 +3192,46 @@ class EnhancedJarvisGUI:
         except Exception as e:
             print(f"Theme update error: {e}")
             # Continue without crashing
+
+    # ===== Gradient Background Helpers =====
+    def _hex_to_rgb(self, hex_color):
+        h = hex_color.lstrip('#')
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+    def _create_background_gradient(self):
+        colors = THEMES[self.theme]
+        self._draw_background_gradient(colors["gradient_start"], colors["gradient_end"]) 
+        def _on_resize(event):
+            try:
+                self._draw_background_gradient(colors["gradient_start"], colors["gradient_end"]) 
+            except Exception:
+                pass
+        self.root.bind("<Configure>", _on_resize)
+
+    def _draw_background_gradient(self, start_hex, end_hex):
+        try:
+            w = max(1, self.root.winfo_width())
+            h = max(1, self.root.winfo_height())
+            start = self._hex_to_rgb(start_hex)
+            end = self._hex_to_rgb(end_hex)
+            img = Image.new('RGB', (w, h), start_hex)
+            draw = ImageDraw.Draw(img)
+            for y in range(h):
+                t = y / float(max(h - 1, 1))
+                r = int(start[0] + (end[0] - start[0]) * t)
+                g = int(start[1] + (end[1] - start[1]) * t)
+                b = int(start[2] + (end[2] - start[2]) * t)
+                draw.line([(0, y), (w, y)], fill=(r, g, b))
+            self.bg_gradient_image = ImageTk.PhotoImage(img)
+            if not hasattr(self, 'bg_gradient_label'):
+                self.bg_gradient_label = tk.Label(self.root, image=self.bg_gradient_image, borderwidth=0)
+                self.bg_gradient_label.place(x=0, y=0, relwidth=1, relheight=1)
+                # Send to back
+                self.bg_gradient_label.lower()
+            else:
+                self.bg_gradient_label.configure(image=self.bg_gradient_image)
+        except Exception:
+            pass
     
     def update_sidebar_theme(self, colors):
         """Update sidebar components with new theme colors safely."""
@@ -2789,6 +3491,15 @@ class EnhancedJarvisGUI:
                 
                 # Simulate search delay for better UX
                 self.root.after(1000, lambda: self._execute_intelligent_open(target))
+
+                # If command also includes a YouTube play clause, trigger playback shortly after open
+                try:
+                    m = re.search(r"play\s+(.+?)\s+(?:on|in|from)\s+youtube\b", command_lower)
+                    if m:
+                        query = m.group(1).strip()
+                        self.root.after(1600, lambda: self.add_to_chat("SAM", self._play_on_youtube_direct(query), "system"))
+                except Exception:
+                    pass
                 
                 return f"🔍 Searching for '{target}'... Please wait."
             
@@ -2801,6 +3512,26 @@ class EnhancedJarvisGUI:
         """Execute the intelligent opening after search simulation."""
         try:
             target_lower = target.lower()
+            typo_map = {
+                'youtbue': 'youtube',
+                'youtbe': 'youtube',
+                'youtueb': 'youtube',
+                'yooutube': 'youtube',
+            }
+            for wrong, right in typo_map.items():
+                if wrong in target_lower:
+                    target_lower = target_lower.replace(wrong, right)
+                    target = target.replace(wrong, right)
+            if 'youtube' in target_lower:
+                m = re.search(r'youtube.*\bplay\s+(.+)$', target_lower)
+                if m:
+                    q = m.group(1).strip()
+                    self.add_to_chat("SAM", self._play_on_youtube_direct(q), "system")
+                    return f"📺 Playing '{q}' on YouTube"
+                yt = YouTubeAutomation(strategy=getattr(self, 'automation_strategy', 'direct'))
+                result = yt.open_youtube()
+                self.add_to_chat("SAM", result, "system")
+                return result
             
             # Windows applications with intelligent search
             if any(app in target_lower for app in ['recycle', 'bin', 'trash']):
@@ -2855,104 +3586,170 @@ class EnhancedJarvisGUI:
             
             # Web applications
             elif any(app in target_lower for app in ['google', 'search']):
-                self.open_website("https://www.google.com")
-                self.add_to_chat("SAM", f"🌐 Opening Google...", "system")
-                return "🌐 Google opened successfully!"
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://www.google.com")
+                    self.add_to_chat("SAM", f"🌐 Opening Google...", "system")
+                    return "🌐 Google opened successfully!"
+                else:
+                    self.open_website("https://www.google.com")
+                    self.add_to_chat("SAM", f"🌐 Opening Google...", "system")
+                    return "🌐 Google opened successfully!"
                 
             elif any(app in target_lower for app in ['youtube', 'yt']):
-                self.open_website("https://www.youtube.com")
-                self.add_to_chat("SAM", f"📺 Opening YouTube...", "system")
-                return "📺 YouTube opened successfully!"
+                yt = YouTubeAutomation(strategy=getattr(self, 'automation_strategy', 'direct'))
+                result = yt.open_youtube()
+                self.add_to_chat("SAM", result, "system")
+                return result
                 
             elif any(app in target_lower for app in ['facebook', 'fb']):
-                self.open_website("https://www.facebook.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://www.facebook.com")
+                else:
+                    self.open_website("https://www.facebook.com")
                 self.add_to_chat("SAM", f"📘 Opening Facebook...", "system")
                 return "📘 Facebook opened successfully!"
                 
             elif any(app in target_lower for app in ['twitter', 'x']):
-                self.open_website("https://twitter.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://twitter.com")
+                else:
+                    self.open_website("https://twitter.com")
                 self.add_to_chat("SAM", f"🐦 Opening Twitter/X...", "system")
                 return "🐦 Twitter/X opened successfully!"
                 
             elif any(app in target_lower for app in ['instagram', 'ig']):
-                self.open_website("https://www.instagram.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://www.instagram.com")
+                else:
+                    self.open_website("https://www.instagram.com")
                 self.add_to_chat("SAM", f"📷 Opening Instagram...", "system")
                 return "📷 Instagram opened successfully!"
                 
             elif any(app in target_lower for app in ['github', 'git']):
-                self.open_website("https://github.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://github.com")
+                else:
+                    self.open_website("https://github.com")
                 self.add_to_chat("SAM", f"💻 Opening GitHub...", "system")
                 return "💻 GitHub opened successfully!"
                 
             elif any(app in target_lower for app in ['stackoverflow', 'stack']):
-                self.open_website("https://stackoverflow.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://stackoverflow.com")
+                else:
+                    self.open_website("https://stackoverflow.com")
                 self.add_to_chat("SAM", f"🔧 Opening Stack Overflow...", "system")
                 return "🔧 Stack Overflow opened successfully!"
                 
             elif any(app in target_lower for app in ['reddit']):
-                self.open_website("https://www.reddit.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://www.reddit.com")
+                else:
+                    self.open_website("https://www.reddit.com")
                 self.add_to_chat("SAM", f"🤖 Opening Reddit...", "system")
                 return "🤖 Reddit opened successfully!"
                 
             elif any(app in target_lower for app in ['wikipedia', 'wiki']):
-                self.open_website("https://www.wikipedia.org")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://www.wikipedia.org")
+                else:
+                    self.open_website("https://www.wikipedia.org")
                 self.add_to_chat("SAM", f"📚 Opening Wikipedia...", "system")
                 return "📚 Wikipedia opened successfully!"
                 
             elif any(app in target_lower for app in ['amazon']):
-                self.open_website("https://www.amazon.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://www.amazon.com")
+                else:
+                    self.open_website("https://www.amazon.com")
                 self.add_to_chat("SAM", f"🛒 Opening Amazon...", "system")
                 return "🛒 Amazon opened successfully!"
                 
             elif any(app in target_lower for app in ['netflix']):
-                self.open_website("https://www.netflix.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://www.netflix.com")
+                else:
+                    self.open_website("https://www.netflix.com")
                 self.add_to_chat("SAM", f"🎬 Opening Netflix...", "system")
                 return "🎬 Netflix opened successfully!"
                 
             elif any(app in target_lower for app in ['spotify']):
-                self.open_website("https://open.spotify.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://open.spotify.com")
+                else:
+                    self.open_website("https://open.spotify.com")
                 self.add_to_chat("SAM", f"🎵 Opening Spotify...", "system")
                 return "🎵 Spotify opened successfully!"
                 
             elif any(app in target_lower for app in ['discord']):
-                self.open_website("https://discord.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://discord.com")
+                else:
+                    self.open_website("https://discord.com")
                 self.add_to_chat("SAM", f"💬 Opening Discord...", "system")
                 return "💬 Discord opened successfully!"
                 
             elif any(app in target_lower for app in ['whatsapp', 'wa']):
-                self.open_website("https://web.whatsapp.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://web.whatsapp.com")
+                else:
+                    self.open_website("https://web.whatsapp.com")
                 self.add_to_chat("SAM", f"💬 Opening WhatsApp Web...", "system")
                 return "💬 WhatsApp Web opened successfully!"
                 
             elif any(app in target_lower for app in ['gmail', 'mail']):
-                self.open_website("https://mail.google.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://mail.google.com")
+                else:
+                    self.open_website("https://mail.google.com")
                 self.add_to_chat("SAM", f"📧 Opening Gmail...", "system")
                 return "📧 Gmail opened successfully!"
                 
             elif any(app in target_lower for app in ['drive', 'google drive']):
-                self.open_website("https://drive.google.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://drive.google.com")
+                else:
+                    self.open_website("https://drive.google.com")
                 self.add_to_chat("SAM", f"☁️ Opening Google Drive...", "system")
                 return "☁️ Google Drive opened successfully!"
                 
             elif any(app in target_lower for app in ['maps', 'google maps']):
-                self.open_website("https://maps.google.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://maps.google.com")
+                else:
+                    self.open_website("https://maps.google.com")
                 self.add_to_chat("SAM", f"🗺️ Opening Google Maps...", "system")
                 return "🗺️ Google Maps opened successfully!"
                 
             elif any(app in target_lower for app in ['translate', 'google translate']):
-                self.open_website("https://translate.google.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://translate.google.com")
+                else:
+                    self.open_website("https://translate.google.com")
                 self.add_to_chat("SAM", f"🌍 Opening Google Translate...", "system")
                 return "🌍 Google Translate opened successfully!"
                 
             elif any(app in target_lower for app in ['calendar', 'google calendar']):
-                self.open_website("https://calendar.google.com")
+                if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                    self.browser_controller.open_url_via_typing("https://calendar.google.com")
+                else:
+                    self.open_website("https://calendar.google.com")
                 self.add_to_chat("SAM", f"📅 Opening Google Calendar...", "system")
                 return "📅 Google Calendar opened successfully!"
             
             else:
                 # Try to open as a website
                 if not target.startswith('http'):
-                    target = f"https://www.{target}.com"
+                    domain = target.split()[0]
+                    if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'system_launcher'):
+                        ok = self.system_launcher.search_and_open(domain)
+                        if ok:
+                            self.add_to_chat("SAM", f"🚀 Opening {domain} via search", "system")
+                            return f"🚀 {domain} opened via search."
+                    if domain.lower() == 'youtube':
+                        self.open_website("https://www.youtube.com")
+                        return "📺 YouTube opened."
+                    target = f"https://www.{domain}.com"
                 self.open_website(target)
                 self.add_to_chat("SAM", f"🌐 Opening {target}...", "system")
                 return f"🌐 {target} opened successfully!"
@@ -2977,16 +3774,19 @@ class EnhancedJarvisGUI:
     def _execute_app_open(self, app_type, app_name):
         """Execute the application opening after search simulation."""
         try:
+            if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'system_launcher'):
+                ok = self.system_launcher.search_and_open(app_name)
+                if ok:
+                    self.add_to_chat("SAM", f"🚀 Opening {app_name} via search", "system")
+                    return f"🚀 {app_name} opened via search."
             if app_type == "notepad":
                 subprocess.Popen(['notepad.exe'])
                 self.add_to_chat("SAM", f"📝 Opening {app_name}...", "system")
                 return f"📝 {app_name} opened successfully!"
-                
             elif app_type == "calculator":
                 subprocess.Popen(['calc.exe'])
                 self.add_to_chat("SAM", f"🧮 Opening {app_name}...", "system")
                 return f"🧮 {app_name} opened successfully!"
-                
             elif app_type == "browser":
                 self.open_website("https://www.google.com")
                 self.add_to_chat("SAM", f"🌐 Opening {app_name}...", "system")
@@ -3071,6 +3871,10 @@ class EnhancedJarvisGUI:
                     response = self._handle_calculation_command(command)
                 elif command_type == "file":
                     response = self._handle_file_command(command)
+                elif command_type == "navigation":
+                    response = self._handle_navigation_command(command)
+                elif command_type == "multi_intent":
+                    response = self._handle_multi_intent_command(command)
                 elif command_type == "media":
                     response = self._handle_media_command(command)
                 elif command_type == "email":
@@ -3149,6 +3953,14 @@ class EnhancedJarvisGUI:
     def _categorize_command(self, command):
         """Ultra-fast command categorization for efficient routing."""
         command_lower = command.lower()
+
+        # Compound multi-intent connectors
+        if re.search(r"\b(and|then|after that|next)\b", command_lower) or "," in command_lower:
+            return "multi_intent"
+
+        # Media priority: if both 'play' and 'youtube' are present, treat as media
+        if ('play' in command_lower) and ('youtube' in command_lower):
+            return "media"
         
         # Camera/vision commands
         if any(word in command_lower for word in ['what is this', 'what do you see', 'analyze', 'camera', 'vision', 'see']):
@@ -3175,6 +3987,15 @@ class EnhancedJarvisGUI:
         search_keywords = ['search', 'google', 'find', 'look up', 'wikipedia', 'news']
         if any(keyword in command_lower for keyword in search_keywords):
             return "search"
+
+        # Navigation commands (system navigation & window/folder actions)
+        navigation_keywords = [
+            'desktop','window','tab','switch','minimize','maximize','restore',
+            'scroll','back','forward','settings','wifi','bluetooth','display','sound','network',
+            'battery','storage','downloads','documents','pictures','photos','music','videos'
+        ]
+        if any(keyword in command_lower for keyword in navigation_keywords) or re.search(r"\bgo to\b", command_lower):
+            return "navigation"
         
         # Calculation commands
         calc_keywords = ['calculate', 'compute', 'math', '+', '-', '*', '/', '=']
@@ -3474,6 +4295,28 @@ class EnhancedJarvisGUI:
             return self.google_news_search(query)
         else:
             return "🔍 Please specify what you want to search for."
+
+    def _handle_navigation_command(self, command):
+        """Handle natural language system navigation via the modular navigator."""
+        try:
+            if not hasattr(self, 'navigator') or self.navigator is None:
+                return "🧭 Navigation module isn't available right now."
+            return self.navigator.handle(command)
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Navigation handling error: {e}")
+            return f"❌ Error handling navigation command: {e}"
+
+    def _handle_multi_intent_command(self, command):
+        """Handle compound commands by planning and executing sequentially."""
+        try:
+            if not hasattr(self, 'multi_planner') or self.multi_planner is None:
+                return "🧩 Multi-intent module isn't available right now."
+            return self.multi_planner.execute(command)
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Multi-intent handling error: {e}")
+            return f"❌ Error handling multi-intent command: {e}"
     
     def _handle_calculation_command(self, command):
         """Handle calculation commands instantly."""
@@ -3488,12 +4331,61 @@ class EnhancedJarvisGUI:
     
     def _handle_media_command(self, command):
         """Handle media commands efficiently."""
-        if 'play' in command.lower() and 'music' in command.lower():
+        cmd = command.lower().strip()
+
+        # Play on YouTube: tolerate extra words and punctuation
+        patterns = [
+            r"play\s+(.+?)\s+(?:on|in|from)\s+youtube\b",
+            r"play\s+(?:on|in|from)\s+youtube\s+(.+?)\b",
+            r"play\s+(.+?)\s+youtube\b",
+        ]
+        for pat in patterns:
+            m = re.search(pat, cmd, flags=re.IGNORECASE)
+            if m:
+                query = m.group(1).strip()
+                return self._play_on_youtube_direct(query)
+
+        # Generic "play <query>" defaults to YouTube search
+        m = re.search(r"\bplay\s+(.+)$", cmd, flags=re.IGNORECASE)
+        if m and 'music' not in cmd:
+            query = m.group(1).strip()
+            return self._play_on_youtube_direct(query)
+
+        # Music folder/open local player
+        if 'play' in cmd and 'music' in cmd:
             return self.handle_music_command()
-        elif 'screenshot' in command.lower():
+
+        if 'screenshot' in cmd:
             return self.take_screenshot()
-        else:
-            return "🎵 Media command recognized. Please be more specific."
+
+        return "🎵 Media command recognized. Please be more specific."
+
+    def _play_on_youtube_direct(self, query: str):
+        try:
+            import requests
+            import re
+            import urllib.parse
+            import webbrowser
+            q = urllib.parse.quote(query)
+            url = f"https://www.youtube.com/results?search_query={q}"
+            headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari"}
+            r = requests.get(url, timeout=8, headers=headers)
+            m = re.search(r'"url":"/watch\?v=([^"]+?)"', r.text)
+            if not m:
+                m = re.search(r'/watch\?v=([\w-]{11})', r.text)
+            if m:
+                vid = m.group(1)
+                webbrowser.open(f"https://www.youtube.com/watch?v={vid}")
+                return f"🎬 Playing '{query}' on YouTube."
+            webbrowser.open(url)
+            return f"🔎 Couldn't resolve a video directly; opened search for '{query}'."
+        except Exception as e:
+            try:
+                import webbrowser, urllib.parse
+                webbrowser.open(f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}")
+            except Exception:
+                pass
+            return f"❌ Error launching YouTube playback: {e}"
     
     def _handle_vision_command(self, command):
         """Handle vision/camera commands with AI analysis."""
@@ -3830,8 +4722,8 @@ class EnhancedJarvisGUI:
 
             # Known apps
             if "youtube" in command_lower:
-                webbrowser.open("https://www.youtube.com")
-                return "🌐 Opening YouTube in your browser!"
+                yt = YouTubeAutomation(strategy=getattr(self, 'automation_strategy', 'direct'))
+                return yt.open_youtube()
             if "notepad" in command_lower or "text editor" in command_lower:
                 subprocess.Popen(['notepad.exe'])
                 return "📝 Notepad opened successfully!"
@@ -3890,12 +4782,10 @@ class EnhancedJarvisGUI:
             match = re.search(r'play (.+?) (?:song )?in youtube', search_term)
             if match:
                 song = match.group(1)
-                url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(song)}"
-                webbrowser.open(url)
-                return f"🎵 Playing '{song}' on YouTube in your browser!"
+                return self._play_on_youtube_direct(song)
             else:
-                webbrowser.open("https://www.youtube.com")
-                return "🌐 Opening YouTube in your browser!"
+                self.open_website("https://www.youtube.com")
+                return "📺 YouTube opened."
         search_keywords = ["search", "find", "look up", "what is", "who is", "tell me about", "explain", "define"]
         for keyword in search_keywords:
             search_term = search_term.replace(keyword, "").strip()
@@ -4001,6 +4891,10 @@ class EnhancedJarvisGUI:
 • "System info" - View system information
 • "Take screenshot" - Capture screen
 • "Open [app]" - Launch applications (notepad, calculator, etc.)
+ 🧭 Navigation:
+ • "Show desktop" / "Switch window" / "Go to downloads"
+ • "Open settings for wifi" / "Scroll down"
+ • "Open YouTube" or "Play [song] in YouTube"
 🔍 Information & Search:
 • "What is [topic]" - Get explanations
 • "Search [query]" - Search for information
@@ -4016,7 +4910,10 @@ class EnhancedJarvisGUI:
 🧮 Utilities:
 • "Calculate [expression]" - Perform calculations
 • "Play music" - Open music player
-• "Open YouTube" or "Play [song] in YouTube" - Directly open or play songs on YouTube
+ 💫 Multi‑step Commands (natural language):
+ • "open youtube and play a song and open google and search cats"
+ • "open settings for bluetooth, then show desktop, then switch window"
+ • "go to downloads and open calculator"
 💻 Code Generation:
 • "Generate fibonacci" - Generate Fibonacci sequence code
 • "Generate factorial" - Generate factorial calculation code
@@ -4120,53 +5017,35 @@ Need help with something specific? Just ask!"""
 
     def speak_text(self, text):
         """Convert text to speech using TTS engine - enhanced for human-like voice."""
-        if self.speaking or not text:
+        if not text:
             return
-        
         try:
-            self.speaking = True
-            
-            # Enhanced text processing for more natural speech
-            clean_text = self._prepare_text_for_speech(text)
-            
-            if len(clean_text) == 0:
-                return
-            
-            # Ensure TTS engine is properly initialized with optimal settings
-            if not hasattr(self, 'tts_engine') or self.tts_engine is None:
-                self.tts_engine = pyttsx3.init()
-                self.update_tts_settings()
-            
-            # Apply enhanced TTS settings for more human-like speech
-            self._apply_enhanced_tts_settings()
-            
-            # Speak the text with natural pauses and emphasis
-            self.tts_engine.say(clean_text)
-            self.tts_engine.runAndWait()
-            
+            # Enqueue text for the TTS worker to speak sequentially
+            if hasattr(self, 'tts_queue') and self.tts_queue:
+                self.tts_queue.put(text)
+            else:
+                # Fallback: speak synchronously
+                if not hasattr(self, 'tts_engine') or self.tts_engine is None:
+                    self.tts_engine = pyttsx3.init()
+                    self.update_tts_settings()
+                self._apply_enhanced_tts_settings()
+                self.tts_engine.say(self._prepare_text_for_speech(text))
+                self.tts_engine.runAndWait()
         except Exception as e:
             print(f"TTS Error: {e}")
-            # Try to reinitialize TTS engine on error
             try:
                 self.tts_engine = pyttsx3.init()
                 self.update_tts_settings()
-            except:
+            except Exception:
                 pass
-        finally:
-            self.speaking = False
     
     def _prepare_text_for_speech(self, text):
         """Prepare text for more natural speech synthesis."""
         # Remove emojis and special characters
-        clean_text = re.sub(r'[🤖👤⚙️📢🌤️💻🧮📝🎨📁⚙️📊🌐📚🔍📖🌍💻🚀💡🏥📱🌱🔬📰📸🎵😄🤣😂🐻📚🌊🥚🐂✅❌⚠️🔍📝🎮🌙☀️💫]', '', text)
-        clean_text = re.sub(r'\[.*?\]', '', clean_text)  # Remove timestamp brackets
-        
-        # Add natural pauses and emphasis for better speech flow
-        clean_text = re.sub(r'([.!?])\s+', r'\1... ', clean_text)  # Add pauses after sentences
-        clean_text = re.sub(r'([,;:])\s+', r'\1 ', clean_text)  # Normalize comma pauses
-        
-        # Add emphasis to important words (capitalized words, numbers, etc.)
-        clean_text = re.sub(r'\b([A-Z][a-z]+)\b', r'<emphasis>\1</emphasis>', clean_text)
+        clean_text = re.sub(r'[\U0001F300-\U0001FAFF]', '', text)
+        clean_text = re.sub(r'\[.*?\]', '', clean_text)
+        # Normalize whitespace
+        clean_text = re.sub(r'\s+', ' ', clean_text)
         
         # Limit text length for faster speech while maintaining natural flow
         if len(clean_text) > 300:
@@ -4178,6 +5057,20 @@ Need help with something specific? Just ask!"""
                 clean_text = clean_text[:300] + "..."
         
         return clean_text.strip()
+
+    def stop_speaking(self):
+        try:
+            if hasattr(self, 'tts_engine') and self.tts_engine:
+                self.tts_engine.stop()
+            if hasattr(self, 'tts_queue') and self.tts_queue:
+                # Clear queued items
+                while not self.tts_queue.empty():
+                    try:
+                        self.tts_queue.get_nowait()
+                    except Exception:
+                        break
+        except Exception:
+            pass
     
     def _apply_enhanced_tts_settings(self):
         """Apply enhanced TTS settings for more human-like speech with multi-language support."""
@@ -4352,7 +5245,10 @@ Need help with something specific? Just ask!"""
 
     def open_website(self, url):
         try:
-            webbrowser.open(url)
+            if getattr(self, 'automation_strategy', 'direct') == 'simulate' and hasattr(self, 'browser_controller'):
+                self.browser_controller.open_url_via_typing(url)
+            else:
+                webbrowser.open(url)
             self.add_to_chat("System", f"Opened {url} in browser", "system")
         except Exception as e:
             print(f"Error in open_website: {e}")
@@ -4530,6 +5426,10 @@ Created with ❤️ using Python and Tkinter
         self._create_email_section(scrollable_frame)
         self._create_profile_section(scrollable_frame)
         self._create_commands_section(scrollable_frame)
+        # Planner section to enable/disable and choose strategy
+        self._create_planner_section(scrollable_frame)
+        # Automation: choose how SAM performs web tasks (direct vs simulate)
+        self._create_automation_section(scrollable_frame)
         self._create_language_section(scrollable_frame)
         
         # Bottom buttons frame
@@ -4666,7 +5566,116 @@ Created with ❤️ using Python and Tkinter
             button_hover_color=THEMES[self.theme]["accent_hover"]
         )
         self.font_slider.set(self.chat_font_size)
+
+    def _create_automation_section(self, parent):
+        """Create automation settings section to control how SAM interacts with the browser."""
+        section_frame = ctk.CTkFrame(parent, fg_color=THEMES[self.theme]["entrybg"])
+        section_frame.pack(fill="x", pady=(0, 15), padx=5)
+
+        title_label = ctk.CTkLabel(
+            section_frame,
+            text="🖱️ Automation Settings",
+            font=("Segoe UI", 14, "bold"),
+            text_color=THEMES[self.theme]["accent"]
+        )
+        title_label.pack(anchor="w", padx=15, pady=(10, 5))
+
+        content = ctk.CTkFrame(section_frame, fg_color="transparent")
+        content.pack(fill="x", padx=15, pady=(0, 10))
+
+        desc = ctk.CTkLabel(
+            content,
+            text="Choose how SAM opens websites like YouTube:",
+            font=("Segoe UI", 11),
+            text_color=THEMES[self.theme]["fg"]
+        )
+        desc.pack(anchor="w")
+
+        self.automation_strategy_var = tk.StringVar(value=getattr(self, 'automation_strategy', 'direct'))
+
+        rb_frame = ctk.CTkFrame(content, fg_color="transparent")
+        rb_frame.pack(fill="x", pady=(5, 5))
+
+        direct_rb = ctk.CTkRadioButton(
+            rb_frame,
+            text="Direct (open URL via API)",
+            variable=self.automation_strategy_var,
+            value="direct",
+            fg_color=THEMES[self.theme]["accent"],
+            hover_color=THEMES[self.theme]["accent_hover"],
+            font=("Segoe UI", 10)
+        )
+        direct_rb.pack(anchor="w", pady=2)
+
+        simulate_rb = ctk.CTkRadioButton(
+            rb_frame,
+            text="Simulate (mouse/keyboard typing)",
+            variable=self.automation_strategy_var,
+            value="simulate",
+            fg_color=THEMES[self.theme]["accent"],
+            hover_color=THEMES[self.theme]["accent_hover"],
+            font=("Segoe UI", 10)
+        )
+        simulate_rb.pack(anchor="w", pady=2)
+
+        hint = ctk.CTkLabel(
+            content,
+            text="Tip: On macOS, grant Accessibility permissions to Python for simulated input.",
+            font=("Segoe UI", 10),
+            text_color=THEMES[self.theme]["muted"]
+        )
+        hint.pack(anchor="w", pady=(6, 2))
         self.font_slider.pack(fill="x", pady=(5, 0))
+
+    def _create_planner_section(self, parent):
+        """Planner settings section (modular)."""
+        frame = ctk.CTkFrame(parent, fg_color=THEMES[self.theme]["entrybg"])
+        frame.pack(fill="x", pady=(0, 15), padx=5)
+
+        title = ctk.CTkLabel(
+            frame,
+            text="🧭 Planner Settings",
+            font=("Segoe UI", 14, "bold"),
+            text_color=THEMES[self.theme]["accent"],
+        )
+        title.pack(anchor="w", padx=15, pady=(10, 5))
+
+        content = ctk.CTkFrame(frame, fg_color="transparent")
+        content.pack(fill="x", padx=15, pady=(0, 10))
+
+        # Enable/disable multi-intent planner
+        self.planner_enabled_var = tk.BooleanVar(value=getattr(self, 'planner_enabled', True))
+        enable_switch = ctk.CTkSwitch(
+            content,
+            text="Enable multi‑intent planner",
+            variable=self.planner_enabled_var,
+            onvalue=True,
+            offvalue=False,
+        )
+        enable_switch.pack(anchor="w", pady=(0, 8))
+
+        # Strategy selection
+        ctk.CTkLabel(
+            content,
+            text="Planning strategy:",
+            font=("Segoe UI", 11),
+            text_color=THEMES[self.theme]["fg"],
+        ).pack(anchor="w", pady=(6, 4))
+
+        self.planning_strategy_var = tk.StringVar(value=getattr(self, 'planning_strategy', 'simple'))
+        strat_frame = ctk.CTkFrame(content, fg_color="transparent")
+        strat_frame.pack(fill="x")
+        for label, value in [("Simple", "simple"), ("AI‑assisted", "ai_assisted")]:
+            rb = ctk.CTkRadioButton(
+                strat_frame,
+                text=label,
+                variable=self.planning_strategy_var,
+                value=value,
+                fg_color=THEMES[self.theme]["accent"],
+                hover_color=THEMES[self.theme]["accent_hover"],
+                font=("Segoe UI", 10)
+            )
+            rb.pack(side="left", padx=(0, 10))
 
     def _create_voice_section(self, parent):
         """Create voice settings section."""
@@ -5250,6 +6259,22 @@ Created with ❤️ using Python and Tkinter
             new_volume = int(self.volume_slider.get()) / 100
             if new_volume != self.tts_volume:
                 self.set_tts_volume(new_volume)
+
+            # Save planner settings
+            try:
+                if hasattr(self, 'planner_enabled_var'):
+                    self.planner_enabled = bool(self.planner_enabled_var.get())
+                if hasattr(self, 'planning_strategy_var'):
+                    self.planning_strategy = str(self.planning_strategy_var.get())
+            except Exception:
+                pass
+
+            # Save automation settings
+            try:
+                if hasattr(self, 'automation_strategy_var'):
+                    self.automation_strategy = str(self.automation_strategy_var.get())
+            except Exception:
+                pass
             
             # Save profile
             self.save_profile()
@@ -5860,6 +6885,14 @@ Try asking for one of these specific topics, or ask me to explain any of these c
                         self.hotwords = profile_data.get('hotwords', ['sam', 'jarvis'])
                     if 'tts_voice_id' in profile_data:
                         self.tts_voice_id = profile_data.get('tts_voice_id', None)
+                    # Planner settings
+                    if 'planner_enabled' in profile_data:
+                        self.planner_enabled = bool(profile_data.get('planner_enabled', True))
+                    if 'planning_strategy' in profile_data:
+                        self.planning_strategy = profile_data.get('planning_strategy', 'simple')
+                    # Automation settings
+                    if 'automation_strategy' in profile_data:
+                        self.automation_strategy = profile_data.get('automation_strategy', 'direct')
                     
                     # Update Gmail status if UI is available
                     if hasattr(self, 'update_gmail_status'):
@@ -5893,6 +6926,9 @@ Try asking for one of these specific topics, or ask me to explain any of these c
             'hotwords': self.hotwords,
             'chat_font_size': self.chat_font_size,
             'tts_voice_id': getattr(self, 'tts_voice_id', None),
+            'planner_enabled': getattr(self, 'planner_enabled', True),
+            'planning_strategy': getattr(self, 'planning_strategy', 'simple'),
+            'automation_strategy': getattr(self, 'automation_strategy', 'direct'),
             'last_updated': datetime.datetime.now().isoformat()
         }
         try:
@@ -7524,5 +8560,3 @@ def resource_path(relative_path):
 if __name__ == "__main__":
     app = EnhancedJarvisGUI()
     app.root.mainloop()
-
-
